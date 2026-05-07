@@ -53,7 +53,7 @@ function Root({ value, chunkSize = 65536, onStatusChange, children }: RootProps)
   }, [version]);
 
   const toggleCollapse = useCallback(
-    (id: number, scrollLineIdx: number | null = null) => {
+    (id: number) => {
       const nodes = nodesRef.current;
       const node = nodes[id];
       if (!node || (node.type !== 'object' && node.type !== 'array')) return;
@@ -61,16 +61,10 @@ function Root({ value, chunkSize = 65536, onStatusChange, children }: RootProps)
       if (c.childIds.length === 0) return;
       c.collapsed = !c.collapsed;
       propagateSubtreeChange(nodes, id);
-      if (scrollLineIdx !== null) {
-        // Signal to viewport to pin scroll
-        pendingScrollRef.current = scrollLineIdx * ROW_HEIGHT;
-      }
       bumpVersion();
     },
     [bumpVersion],
   );
-
-  const pendingScrollRef = useRef<number | null>(null);
 
   useEffect(() => {
     const abort = new AbortController();
@@ -136,7 +130,6 @@ function Root({ value, chunkSize = 65536, onStatusChange, children }: RootProps)
       error,
       toggleCollapse,
       version,
-      pendingScrollRef,
     }),
     [totalLines, bytes, status, error, toggleCollapse, version],
   );
@@ -188,7 +181,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   { className, style, ...rest },
   forwardedRef,
 ) {
-  const { nodesRef, totalLines, toggleCollapse, version, pendingScrollRef } = useJsonViewerContext();
+  const { nodesRef, totalLines, toggleCollapse, version } = useJsonViewerContext();
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -218,14 +211,19 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     return () => ro.disconnect();
   }, []);
 
-  useLayoutEffect(() => {
-    const pending = pendingScrollRef?.current;
-    if (pending != null && scrollRef.current) {
-      scrollRef.current.scrollTop = pending;
-      setScrollTop(pending);
-      pendingScrollRef.current = null;
-    }
-  }, [version, pendingScrollRef]);
+  // Collapsing a sticky should keep the clicked row pinned to the same
+  // viewport y. We set scroll synchronously alongside the collapse so the
+  // next render uses both the new (smaller) tree and the new scrollTop in
+  // the same paint — otherwise there's a brief frame where they disagree.
+  const handleStickyToggle = useCallback(
+    (id: number, lineIdx: number, slot: number) => {
+      const nextScrollTop = Math.max(0, (lineIdx - slot) * ROW_HEIGHT);
+      if (scrollRef.current) scrollRef.current.scrollTop = nextScrollTop;
+      setScrollTop(nextScrollTop);
+      toggleCollapse(id);
+    },
+    [toggleCollapse],
+  );
 
   const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
     setScrollTop(e.currentTarget.scrollTop);
@@ -239,38 +237,53 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
   const endIdx = Math.min(totalLines, Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN);
 
-  // Sticky chain: a container's open row should pin to its sticky slot the moment
-  // it would otherwise be the first content visible *below* the existing stack of
-  // stickies — not after it has scrolled past viewport y = 0. We compute the chain
-  // iteratively: probe the line at (topIdx + chain.length); whatever ancestors that
-  // line has, plus itself if it's an open container, form the next chain. Repeat
-  // until stable.
-  const baseIdx = Math.floor(scrollTop / ROW_HEIGHT);
-  let stickyChain: StickyEntry[] = [];
-  if (totalLines > 0) {
-    for (let iter = 0; iter < 64; iter++) {
-      const probeIdx = baseIdx + stickyChain.length;
-      if (probeIdx >= totalLines) break;
-      const r = getLineAt(probeIdx, nodes);
-      if (!r) break;
-      const next: StickyEntry[] = [...r.path];
-      const top = r.line;
-      const node = nodes[top.id];
-      // Include collapsed containers too — the row should *stay* stuck across a
-      // collapse/expand toggle (same pixel position, same sticky styling).
-      if (
-        top.kind === 'open' &&
-        node &&
-        (node.type === 'object' || node.type === 'array') &&
-        (node as ContainerNode).childIds.length > 0
-      ) {
-        next.push({ id: top.id, depth: top.depth, lineIdx: probeIdx });
+  // Sticky chain: walk down the tree from the root, at each depth picking the
+  // child container whose doc-y range contains the line that would appear just
+  // below the existing sticky stack (scrollTop + (depth+1)*RH). A container is
+  // included only once its open row has been scrolled strictly past its slot:
+  //
+  //   open*RH < scrollTop + depth*RH
+  //
+  // and excluded once its close row has fully scrolled past the viewport top:
+  //
+  //   (close+1)*RH > scrollTop
+  //
+  // Consequence: at scrollTop = 0 nothing is sticky; at scrollTop = 1 every
+  // container along the current ancestor path becomes sticky simultaneously.
+  const stickyChain: StickyEntry[] = [];
+  if (nodes.length > 0) {
+    let curId = 0;
+    let curOpen = 0;
+    let depth = 0;
+    for (let guard = 0; guard < 256; guard++) {
+      const cur = nodes[curId];
+      if (!cur || (cur.type !== 'object' && cur.type !== 'array')) break;
+      const cc = cur as ContainerNode;
+      if (cc.collapsed || cc.childIds.length === 0) break;
+      const slotY = depth * ROW_HEIGHT;
+      if (curOpen * ROW_HEIGHT >= scrollTop + slotY) break;
+      const closeIdx = curOpen + cc.subtreeLines - 1;
+      if ((closeIdx + 1) * ROW_HEIGHT <= scrollTop) break;
+      stickyChain.push({ id: curId, depth, lineIdx: curOpen });
+
+      const targetY = scrollTop + (depth + 1) * ROW_HEIGHT;
+      let childOpen = curOpen + 1;
+      let nextId = -1;
+      let nextOpen = 0;
+      for (const childId of cc.childIds) {
+        const child = nodes[childId]!;
+        const childEnd = (childOpen + child.subtreeLines) * ROW_HEIGHT;
+        if (childOpen * ROW_HEIGHT <= targetY && targetY < childEnd) {
+          nextId = childId;
+          nextOpen = childOpen;
+          break;
+        }
+        childOpen += child.subtreeLines;
       }
-      // Only grow the chain. Once a container occupies slot i it stays put;
-      // a probe past a collapsed container (whose next sibling lives at a
-      // lower depth) would otherwise replace the just-collapsed entry.
-      if (next.length <= stickyChain.length) break;
-      stickyChain = next;
+      if (nextId < 0) break;
+      curId = nextId;
+      curOpen = nextOpen;
+      depth += 1;
     }
   }
   const stickyIds = new Set(stickyChain.map((s) => s.id));
@@ -341,7 +354,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
                   parentNode={parent}
                   kind="open"
                   depth={entry.depth}
-                  onToggle={(id) => toggleCollapse(id, entry.lineIdx - i)}
+                  onToggle={(id) => handleStickyToggle(id, entry.lineIdx, i)}
                   isSticky
                 />
               </div>

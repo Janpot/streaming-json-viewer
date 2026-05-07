@@ -7,9 +7,8 @@ export interface JsonViewerContextValue {
   bytes: number;
   status: Status;
   error: Error | null;
-  toggleCollapse: (id: number, scrollLineIdx?: number | null) => void;
+  toggleCollapse: (id: number) => void;
   version: number;
-  pendingScrollRef: { current: number | null };
 }
 
 export const JsonViewerContext = createContext<JsonViewerContextValue | null>(null);
