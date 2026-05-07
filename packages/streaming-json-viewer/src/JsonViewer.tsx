@@ -205,9 +205,12 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     [forwardedRef],
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    // Measure synchronously before first paint so virtualization fills the
+    // actual viewport, not a stale fallback size.
+    setContainerHeight(el.clientHeight);
     const ro = new ResizeObserver((entries) => {
       for (const e of entries) setContainerHeight(e.contentRect.height);
     });
@@ -236,26 +239,37 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
   const endIdx = Math.min(totalLines, Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN);
 
-  // Sticky chain: include every container open whose row is at or above the top edge,
-  // including the topmost line itself if it is an open container.
-  const topVisibleIdx = Math.floor(scrollTop / ROW_HEIGHT);
+  // Sticky chain: a container's open row should pin to its sticky slot the moment
+  // it would otherwise be the first content visible *below* the existing stack of
+  // stickies — not after it has scrolled past viewport y = 0. We compute the chain
+  // iteratively: probe the line at (topIdx + chain.length); whatever ancestors that
+  // line has, plus itself if it's an open container, form the next chain. Repeat
+  // until stable.
+  const baseIdx = Math.floor(scrollTop / ROW_HEIGHT);
   let stickyChain: StickyEntry[] = [];
-  if (totalLines > 0 && topVisibleIdx < totalLines) {
-    const r = getLineAt(topVisibleIdx, nodes);
-    if (r) {
-      stickyChain = r.path;
+  if (totalLines > 0) {
+    for (let iter = 0; iter < 64; iter++) {
+      const probeIdx = baseIdx + stickyChain.length;
+      if (probeIdx >= totalLines) break;
+      const r = getLineAt(probeIdx, nodes);
+      if (!r) break;
+      const next: StickyEntry[] = [...r.path];
       const top = r.line;
       const node = nodes[top.id];
-      if (node) {
-        const isOpenContainer =
-          top.kind === 'open' &&
-          (node.type === 'object' || node.type === 'array') &&
-          !(node as ContainerNode).collapsed &&
-          (node as ContainerNode).childIds.length > 0;
-        if (isOpenContainer) {
-          stickyChain = [...stickyChain, { id: top.id, depth: top.depth, lineIdx: topVisibleIdx }];
-        }
+      if (
+        top.kind === 'open' &&
+        node &&
+        (node.type === 'object' || node.type === 'array') &&
+        !(node as ContainerNode).collapsed &&
+        (node as ContainerNode).childIds.length > 0
+      ) {
+        next.push({ id: top.id, depth: top.depth, lineIdx: probeIdx });
       }
+      const same =
+        next.length === stickyChain.length &&
+        next.every((e, i) => e.id === stickyChain[i]!.id);
+      if (same) break;
+      stickyChain = next;
     }
   }
   const stickyIds = new Set(stickyChain.map((s) => s.id));
