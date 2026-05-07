@@ -154,6 +154,16 @@ body {
   cursor: not-allowed;
 }
 
+.fetch-error {
+  margin-top: 8px;
+  padding: 6px 10px;
+  background: rgba(224, 108, 117, 0.1);
+  color: #e06c75;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+}
+
 .viewer-shell {
   background: var(--bg-2);
   border: 1px solid var(--border);

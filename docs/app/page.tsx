@@ -31,47 +31,38 @@ function generateDemoJson(count: number): string {
   });
 }
 
-function stringToStream(str: string, chunkSize = 65536): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder();
-  let pos = 0;
-  return new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      if (pos >= str.length) {
-        controller.close();
-        return;
-      }
-      const slice = str.slice(pos, pos + chunkSize);
-      pos += chunkSize;
-      controller.enqueue(encoder.encode(slice));
-      await new Promise((r) => setTimeout(r, 8));
-    },
-  });
-}
-
-type Mode = 'demo' | 'stream' | 'paste';
+type Mode = 'demo' | 'url' | 'paste';
 
 export default function Page() {
   const [mode, setMode] = useState<Mode>('demo');
   const [demoSize, setDemoSize] = useState(10000);
+  const [urlValue, setUrlValue] = useState('');
   const [pasteValue, setPasteValue] = useState(
     '{"hello":"world","nested":{"arr":[1,2,3,true,null]}}',
   );
   const [active, setActive] = useState<{ value: StreamValue; key: number } | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   const run = async () => {
+    setFetchError(null);
     if (mode === 'demo') {
       setGenerating(true);
       await new Promise((r) => setTimeout(r, 16));
       const json = generateDemoJson(demoSize);
       setGenerating(false);
       setActive({ value: json, key: Date.now() });
-    } else if (mode === 'stream') {
-      setGenerating(true);
-      await new Promise((r) => setTimeout(r, 16));
-      const json = generateDemoJson(demoSize);
-      setGenerating(false);
-      setActive({ value: stringToStream(json), key: Date.now() });
+    } else if (mode === 'url') {
+      const url = urlValue.trim();
+      if (!url) return;
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.body) throw new Error('Response has no body');
+        setActive({ value: res.body, key: Date.now() });
+      } catch (e) {
+        setFetchError(e instanceof Error ? e.message : String(e));
+      }
     } else if (mode === 'paste') {
       if (!pasteValue.trim()) return;
       setActive({ value: pasteValue, key: Date.now() });
@@ -104,10 +95,10 @@ export default function Page() {
               demo
             </button>
             <button
-              className={`mode-btn ${mode === 'stream' ? 'mode-btn-active' : ''}`}
-              onClick={() => setMode('stream')}
+              className={`mode-btn ${mode === 'url' ? 'mode-btn-active' : ''}`}
+              onClick={() => setMode('url')}
             >
-              stream
+              url
             </button>
             <button
               className={`mode-btn ${mode === 'paste' ? 'mode-btn-active' : ''}`}
@@ -117,7 +108,7 @@ export default function Page() {
             </button>
           </div>
 
-          {(mode === 'demo' || mode === 'stream') && (
+          {mode === 'demo' && (
             <div className="input-row">
               <select
                 className="select"
@@ -130,9 +121,27 @@ export default function Page() {
                 <option value={100000}>100,000 items (~15 MB)</option>
               </select>
               <button className="run-btn" onClick={run} disabled={generating}>
-                {generating ? 'generating…' : mode === 'stream' ? 'stream' : 'parse'}
+                {generating ? 'generating…' : 'parse'}
               </button>
             </div>
+          )}
+
+          {mode === 'url' && (
+            <div className="input-row">
+              <input
+                className="input"
+                type="text"
+                placeholder="https://example.com/data.json (must allow CORS)"
+                value={urlValue}
+                onChange={(e) => setUrlValue(e.target.value)}
+              />
+              <button className="run-btn" onClick={run}>
+                fetch
+              </button>
+            </div>
+          )}
+          {fetchError && mode === 'url' && (
+            <div className="fetch-error">{fetchError}</div>
           )}
 
           {mode === 'paste' && (

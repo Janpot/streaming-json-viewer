@@ -3,20 +3,21 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
   type HTMLAttributes,
   type ReactNode,
 } from 'react';
-import { JsonViewerContext, useJsonViewerContext } from './context';
+import { JsonViewerContext, useStore } from './context';
+import { JsonViewerStore } from './store';
 import { createTokenizer } from './tokenizer';
 import { createParser } from './parser';
-import { createTreeBuilder, getLineAt, nextLine, propagateSubtreeChange } from './tree';
+import { createTreeBuilder, getLineAt, nextLine } from './tree';
 import { ingest, type StreamValue } from './ingest';
 import { ROW_HEIGHT, RowContent } from './Row';
-import type { ContainerNode, Status, StickyEntry, TreeNode } from './types';
+import type { ContainerNode, Status, StickyEntry } from './types';
 
 const OVERSCAN = 12;
 
@@ -28,55 +29,27 @@ export interface RootProps {
 }
 
 function Root({ value, chunkSize = 65536, onStatusChange, children }: RootProps) {
-  const nodesRef = useRef<TreeNode[]>([]);
-  const [version, setVersion] = useState(0);
-  const bumpVersion = useCallback(() => setVersion((v) => v + 1), []);
-
-  const [bytes, setBytes] = useState(0);
-  const [status, setStatusState] = useState<Status>('idle');
-  const [error, setError] = useState<Error | null>(null);
+  const storeRef = useRef<JsonViewerStore | null>(null);
+  if (!storeRef.current) storeRef.current = new JsonViewerStore();
+  const store = storeRef.current;
 
   const onStatusChangeRef = useRef(onStatusChange);
   useEffect(() => {
     onStatusChangeRef.current = onStatusChange;
   }, [onStatusChange]);
 
-  const setStatus = useCallback((s: Status, err?: Error) => {
-    setStatusState(s);
-    onStatusChangeRef.current?.(s, err);
-  }, []);
-
-  const totalLines = useMemo(() => {
-    void version;
-    const nodes = nodesRef.current;
-    return nodes.length === 0 ? 0 : nodes[0]!.subtreeLines;
-  }, [version]);
-
-  const toggleCollapse = useCallback(
-    (id: number) => {
-      const nodes = nodesRef.current;
-      const node = nodes[id];
-      if (!node || (node.type !== 'object' && node.type !== 'array')) return;
-      const c = node as ContainerNode;
-      if (c.childIds.length === 0) return;
-      c.collapsed = !c.collapsed;
-      propagateSubtreeChange(nodes, id);
-      bumpVersion();
-    },
-    [bumpVersion],
-  );
-
   useEffect(() => {
     const abort = new AbortController();
     const builder = createTreeBuilder();
-    nodesRef.current = builder.nodes;
+    store.reset(builder.nodes);
+    const setStatus = (s: Status, err: Error | null = null) => {
+      store.setStatus(s, err);
+      onStatusChangeRef.current?.(s, err ?? undefined);
+    };
+    setStatus('streaming');
+
     const parser = createParser(builder.handlers);
     const tokenizer = createTokenizer((t, v) => parser.onToken(t, v));
-
-    setBytes(0);
-    setError(null);
-    setStatus('streaming');
-    bumpVersion();
 
     let raf = 0;
     let scheduled = false;
@@ -85,64 +58,60 @@ function Root({ value, chunkSize = 65536, onStatusChange, children }: RootProps)
       scheduled = true;
       raf = requestAnimationFrame(() => {
         scheduled = false;
-        bumpVersion();
+        store.notify();
       });
     };
 
     let cancelled = false;
 
-    (async () => {
-      try {
-        await ingest(value, tokenizer, {
-          signal: abort.signal,
-          chunkSize,
-          onProgress: (b) => {
-            if (cancelled) return;
-            setBytes(b);
-            scheduleFlush();
-          },
-        });
-        if (cancelled) return;
-        scheduleFlush();
-        setStatus('done');
-      } catch (e) {
-        if (cancelled) return;
-        if ((e as Error).name === 'AbortError') return;
-        const err = e instanceof Error ? e : new Error(String(e));
-        setError(err);
-        setStatus('error', err);
-      }
-    })();
+    // Defer reader attachment by a microtask so React StrictMode's dev
+    // double-invocation (setup → cleanup → setup) doesn't lock the stream
+    // before the first cleanup can mark itself cancelled.
+    queueMicrotask(() => {
+      if (cancelled) return;
+      (async () => {
+        try {
+          await ingest(value, tokenizer, {
+            signal: abort.signal,
+            chunkSize,
+            onProgress: (b) => {
+              if (cancelled) return;
+              store.bytes = b;
+              scheduleFlush();
+            },
+          });
+          if (cancelled) return;
+          scheduleFlush();
+          setStatus('done');
+        } catch (e) {
+          if (cancelled) return;
+          if ((e as Error).name === 'AbortError') return;
+          const err = e instanceof Error ? e : new Error(String(e));
+          setStatus('error', err);
+        }
+      })();
+    });
 
     return () => {
       cancelled = true;
       abort.abort();
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [value, chunkSize, bumpVersion, setStatus]);
+  }, [value, chunkSize, store]);
 
-  const ctx = useMemo(
-    () => ({
-      nodesRef,
-      totalLines,
-      bytes,
-      status,
-      error,
-      toggleCollapse,
-      version,
-    }),
-    [totalLines, bytes, status, error, toggleCollapse, version],
-  );
+  return <JsonViewerContext.Provider value={store}>{children}</JsonViewerContext.Provider>;
+}
 
-  return <JsonViewerContext.Provider value={ctx}>{children}</JsonViewerContext.Provider>;
+function useStoreVersion(store: JsonViewerStore): number {
+  return useSyncExternalStore(store.subscribe, store.getVersion, store.getVersion);
 }
 
 export type StatusBarProps = HTMLAttributes<HTMLDivElement>;
 
 function StatusBar({ className, ...rest }: StatusBarProps) {
-  const { bytes, status, error, totalLines, nodesRef, version } = useJsonViewerContext();
-  void version;
-  const nodeCount = nodesRef.current.length;
+  const store = useStore();
+  useStoreVersion(store);
+  const { bytes, status, error, totalLines, nodes } = store;
   return (
     <div className={`sjv-meta ${className ?? ''}`} {...rest}>
       <div className="sjv-meta-group">
@@ -152,7 +121,7 @@ function StatusBar({ className, ...rest }: StatusBarProps) {
         </span>
         <span className="sjv-stat">
           <span className="sjv-stat-label">nodes</span>
-          <span className="sjv-stat-value">{nodeCount.toLocaleString()}</span>
+          <span className="sjv-stat-value">{nodes.length.toLocaleString()}</span>
         </span>
         <span className="sjv-stat">
           <span className="sjv-stat-label">lines</span>
@@ -181,7 +150,9 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   { className, style, ...rest },
   forwardedRef,
 ) {
-  const { nodesRef, totalLines, toggleCollapse, version } = useJsonViewerContext();
+  const store = useStore();
+  useStoreVersion(store);
+  const { nodes, totalLines } = store;
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -201,8 +172,6 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    // Measure synchronously before first paint so virtualization fills the
-    // actual viewport, not a stale fallback size.
     setContainerHeight(el.clientHeight);
     const ro = new ResizeObserver((entries) => {
       for (const e of entries) setContainerHeight(e.contentRect.height);
@@ -211,18 +180,18 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     return () => ro.disconnect();
   }, []);
 
-  // Collapsing a sticky should keep the clicked row pinned to the same
-  // viewport y. We set scroll synchronously alongside the collapse so the
-  // next render uses both the new (smaller) tree and the new scrollTop in
-  // the same paint — otherwise there's a brief frame where they disagree.
+  // Click-to-collapse on a sticky header should keep the row pinned at the
+  // viewport y where the user clicked. We set scroll synchronously alongside
+  // the collapse so the next render uses both the new tree and new scrollTop
+  // in the same React batch (no in-between frame).
   const handleStickyToggle = useCallback(
     (id: number, lineIdx: number, slot: number) => {
       const nextScrollTop = Math.max(0, (lineIdx - slot) * ROW_HEIGHT);
       if (scrollRef.current) scrollRef.current.scrollTop = nextScrollTop;
       setScrollTop(nextScrollTop);
-      toggleCollapse(id);
+      store.toggleCollapse(id);
     },
-    [toggleCollapse],
+    [store],
   );
 
   const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
@@ -230,26 +199,14 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     setScrollLeft(e.currentTarget.scrollLeft);
   };
 
-  const nodes = nodesRef.current;
-  void version;
-
   const totalHeight = Math.max(totalLines * ROW_HEIGHT, ROW_HEIGHT);
   const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
   const endIdx = Math.min(totalLines, Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN);
 
-  // Sticky chain: walk down the tree from the root, at each depth picking the
-  // child container whose doc-y range contains the line that would appear just
-  // below the existing sticky stack (scrollTop + (depth+1)*RH). A container is
-  // included only once its open row has been scrolled strictly past its slot:
-  //
-  //   open*RH < scrollTop + depth*RH
-  //
-  // and excluded once its close row has fully scrolled past the viewport top:
-  //
-  //   (close+1)*RH > scrollTop
-  //
-  // Consequence: at scrollTop = 0 nothing is sticky; at scrollTop = 1 every
-  // container along the current ancestor path becomes sticky simultaneously.
+  // Sticky chain: walk down from root, at each depth pick the child container
+  // whose doc-y range covers scrollTop + (depth+1)*RH. Include a container
+  // only once its open row has scrolled strictly past its slot, and drop it
+  // once its close has fully scrolled past viewport top.
   const stickyChain: StickyEntry[] = [];
   if (nodes.length > 0) {
     let curId = 0;
@@ -288,7 +245,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   }
   const stickyIds = new Set(stickyChain.map((s) => s.id));
 
-  const visibleLines: { line: ReturnType<typeof getLineAt> extends infer T ? T extends { line: infer L } ? L : never : never; idx: number }[] = [];
+  const visibleLines: { line: ReturnType<typeof nextLine>; idx: number }[] = [];
   if (totalLines > 0) {
     const first = getLineAt(startIdx, nodes);
     if (first) {
@@ -316,7 +273,6 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
             if (!line) return null;
             const node = nodes[line.id];
             if (!node) return null;
-            // Skip rendering rows that are also in the sticky chain (avoid duplicate row).
             if (line.kind === 'open' && stickyIds.has(line.id)) return null;
             const parent = node.parentId >= 0 ? nodes[node.parentId]! : null;
             return (
@@ -329,7 +285,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
                   parentNode={parent}
                   kind={line.kind}
                   depth={line.depth}
-                  onToggle={toggleCollapse}
+                  onToggle={(id) => store.toggleCollapse(id)}
                 />
               </div>
             );
