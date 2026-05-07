@@ -35,23 +35,33 @@ function Chevron({ open, hidden }: ChevronProps) {
     transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
   };
   return (
-    <span className="sjv-chevron" style={style}>
-      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <span data-token="chevron" style={style}>
+      <svg
+        width="11"
+        height="11"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
         <polyline points="9 18 15 12 9 6" />
       </svg>
     </span>
   );
 }
 
-function formatPrimitive(node: PrimitiveNode): { className: string; text: string } {
+function formatPrimitive(node: PrimitiveNode): { token: string; text: string } {
   if (node.type === 'string') {
     const s = node.value as string;
     const truncated = s.length > 200 ? s.slice(0, 200) + '…' : s;
-    return { className: 'sjv-string', text: `"${truncated}"` };
+    return { token: 'string', text: `"${truncated}"` };
   }
-  if (node.type === 'number') return { className: 'sjv-number', text: String(node.value) };
-  if (node.type === 'boolean') return { className: 'sjv-bool', text: String(node.value) };
-  return { className: 'sjv-null', text: 'null' };
+  if (node.type === 'number') return { token: 'number', text: String(node.value) };
+  if (node.type === 'boolean') return { token: 'boolean', text: String(node.value) };
+  return { token: 'null', text: 'null' };
 }
 
 export type LineProps = HTMLAttributes<HTMLDivElement>;
@@ -62,22 +72,13 @@ export function Line({ className, style, onClick, ...rest }: LineProps) {
   const indent = depth * INDENT;
   const open = node.type === 'object' ? '{' : '[';
   const close = node.type === 'object' ? '}' : ']';
-  const showKey =
-    kind !== 'close' &&
-    parent &&
-    parent.type === 'object' &&
-    node.key !== null;
+  const showKey = kind !== 'close' && parent && parent.type === 'object' && node.key !== null;
 
   if (kind === 'close') {
     const mergedStyle: CSSProperties = { paddingLeft: indent + 8 + 14, ...style };
     return (
-      <div
-        className={`sjv-row${className ? ` ${className}` : ''}`}
-        style={mergedStyle}
-        onClick={onClick}
-        {...rest}
-      >
-        <span className="sjv-bracket">{close}</span>
+      <div className={className} style={mergedStyle} onClick={onClick} {...rest}>
+        <span data-token="bracket">{close}</span>
       </div>
     );
   }
@@ -90,7 +91,8 @@ export function Line({ className, style, onClick, ...rest }: LineProps) {
     const mergedStyle: CSSProperties = { paddingLeft: indent + 8, ...style };
     return (
       <div
-        className={`sjv-row sjv-row-clickable${className ? ` ${className}` : ''}`}
+        className={className}
+        data-clickable={!empty ? '' : undefined}
         style={mergedStyle}
         onClick={(e) => {
           onClick?.(e);
@@ -101,46 +103,55 @@ export function Line({ className, style, onClick, ...rest }: LineProps) {
         <Chevron open={!collapsed} hidden={empty} />
         {showKey && (
           <>
-            <span className="sjv-key">&quot;{node.key}&quot;</span>
-            <span className="sjv-colon">: </span>
+            <span data-token="property">&quot;{node.key}&quot;</span>
+            <span data-token="colon">: </span>
           </>
         )}
-        <span className="sjv-bracket">{open}</span>
+        <span data-token="bracket">{open}</span>
         {empty ? (
-          <span className="sjv-bracket">{close}</span>
+          <span data-token="bracket">{close}</span>
         ) : collapsed ? (
           <>
-            <span className="sjv-ellipsis">…</span>
-            <span className="sjv-bracket">{close}</span>
-            <span className="sjv-count">
-              {count} {node.type === 'array' ? (count === 1 ? 'item' : 'items') : count === 1 ? 'key' : 'keys'}
+            <span data-token="ellipsis">…</span>
+            <span data-token="bracket">{close}</span>
+            <span data-token="count">
+              {count}{' '}
+              {node.type === 'array'
+                ? count === 1
+                  ? 'item'
+                  : 'items'
+                : count === 1
+                  ? 'key'
+                  : 'keys'}
             </span>
           </>
         ) : (
-          <span className="sjv-count">
-            {count} {node.type === 'array' ? (count === 1 ? 'item' : 'items') : count === 1 ? 'key' : 'keys'}
+          <span data-token="count">
+            {count}{' '}
+            {node.type === 'array'
+              ? count === 1
+                ? 'item'
+                : 'items'
+              : count === 1
+                ? 'key'
+                : 'keys'}
           </span>
         )}
       </div>
     );
   }
 
-  const { className: tokenClassName, text } = formatPrimitive(node as PrimitiveNode);
+  const { token, text } = formatPrimitive(node as PrimitiveNode);
   const mergedStyle: CSSProperties = { paddingLeft: indent + 8 + 14, ...style };
   return (
-    <div
-      className={`sjv-row${className ? ` ${className}` : ''}`}
-      style={mergedStyle}
-      onClick={onClick}
-      {...rest}
-    >
+    <div className={className} style={mergedStyle} onClick={onClick} {...rest}>
       {showKey && (
         <>
-          <span className="sjv-key">&quot;{node.key}&quot;</span>
-          <span className="sjv-colon">: </span>
+          <span data-token="property">&quot;{node.key}&quot;</span>
+          <span data-token="colon">: </span>
         </>
       )}
-      <span className={tokenClassName}>{text}</span>
+      <span data-token={token}>{text}</span>
     </div>
   );
 }

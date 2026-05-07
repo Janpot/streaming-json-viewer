@@ -127,39 +127,58 @@ function useStoreVersion(store: JsonViewerStore): number {
 
 export type StatusBarProps = HTMLAttributes<HTMLDivElement>;
 
-function StatusBar({ className, ...rest }: StatusBarProps) {
+/**
+ * Container for status-bar parts. Renders a plain `<div>` and passes through
+ * className/style/etc. — the consumer composes its content from the leaf
+ * parts (Bytes, NodeCount, LineCount, Status) with their own classes.
+ */
+function StatusBar(props: StatusBarProps) {
+  return <div {...props} />;
+}
+
+export type StatProps = HTMLAttributes<HTMLSpanElement>;
+
+function Bytes(props: StatProps) {
   const store = useStore();
   useStoreVersion(store);
-  const { bytes, status, error, totalLines, nodes } = store;
+  return <span {...props}>{store.bytes.toLocaleString()}</span>;
+}
+
+function NodeCount(props: StatProps) {
+  const store = useStore();
+  useStoreVersion(store);
+  return <span {...props}>{store.nodes.length.toLocaleString()}</span>;
+}
+
+function LineCount(props: StatProps) {
+  const store = useStore();
+  useStoreVersion(store);
+  return <span {...props}>{store.totalLines.toLocaleString()}</span>;
+}
+
+export type StatusProps = HTMLAttributes<HTMLSpanElement>;
+
+/**
+ * Renders the current viewer status as `<span data-status="...">{text}</span>`.
+ * data-status is one of `streaming` | `done` | `error` | `idle` — style each
+ * variant via `[data-status='streaming']` etc.
+ */
+function Status(props: StatusProps) {
+  const store = useStore();
+  useStoreVersion(store);
+  const { status, error } = store;
+  const text =
+    status === 'streaming'
+      ? 'streaming'
+      : status === 'done'
+        ? 'complete'
+        : status === 'error'
+          ? (error?.message ?? 'error')
+          : 'idle';
   return (
-    <div className={`sjv-meta ${className ?? ''}`} {...rest}>
-      <div className="sjv-meta-group">
-        <span className="sjv-stat">
-          <span className="sjv-stat-label">bytes</span>
-          <span className="sjv-stat-value">{bytes.toLocaleString()}</span>
-        </span>
-        <span className="sjv-stat">
-          <span className="sjv-stat-label">nodes</span>
-          <span className="sjv-stat-value">{nodes.length.toLocaleString()}</span>
-        </span>
-        <span className="sjv-stat">
-          <span className="sjv-stat-label">lines</span>
-          <span className="sjv-stat-value">{totalLines.toLocaleString()}</span>
-        </span>
-      </div>
-      <div className="sjv-meta-group">
-        {status === 'streaming' && (
-          <span className="sjv-status sjv-status-stream">
-            <span className="sjv-pulse" /> streaming
-          </span>
-        )}
-        {status === 'done' && <span className="sjv-status sjv-status-done">complete</span>}
-        {status === 'error' && (
-          <span className="sjv-status sjv-status-error">{error?.message ?? 'error'}</span>
-        )}
-        {status === 'idle' && <span className="sjv-status sjv-status-idle">idle</span>}
-      </div>
-    </div>
+    <span data-status={status} {...props}>
+      {text}
+    </span>
   );
 }
 
@@ -626,6 +645,10 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
 export const JsonViewer = {
   Root,
   StatusBar,
+  Bytes,
+  NodeCount,
+  LineCount,
+  Status,
   Viewport,
   Body,
   Line,

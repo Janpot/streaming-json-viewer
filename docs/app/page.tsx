@@ -175,9 +175,27 @@ export default function Page() {
         {active && (
           <div className="viewer-shell" key={active.key}>
             <JsonViewer.Root value={active.value} format={active.format}>
-              <JsonViewer.StatusBar />
-              <JsonViewer.Viewport style={{ flex: 1 }}>
-                <JsonViewer.Body />
+              <JsonViewer.StatusBar className="meta">
+                <div className="meta-group">
+                  <span className="stat">
+                    <span className="stat-label">bytes</span>
+                    <JsonViewer.Bytes className="stat-value" />
+                  </span>
+                  <span className="stat">
+                    <span className="stat-label">nodes</span>
+                    <JsonViewer.NodeCount className="stat-value" />
+                  </span>
+                  <span className="stat">
+                    <span className="stat-label">lines</span>
+                    <JsonViewer.LineCount className="stat-value" />
+                  </span>
+                </div>
+                <div className="meta-group">
+                  <JsonViewer.Status className="status" />
+                </div>
+              </JsonViewer.StatusBar>
+              <JsonViewer.Viewport className="json-viewer" style={{ flex: 1 }}>
+                <JsonViewer.Body>{() => <JsonViewer.Line className="row" />}</JsonViewer.Body>
               </JsonViewer.Viewport>
             </JsonViewer.Root>
           </div>
