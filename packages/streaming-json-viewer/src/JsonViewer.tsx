@@ -19,7 +19,7 @@ import { createParser } from './parser';
 import { createTreeBuilder, getLineAt, nextLine } from './tree';
 import { ingest, type StreamValue } from './ingest';
 import { Line, LineContext, ROW_HEIGHT, type LineContextValue } from './Row';
-import type { ContainerNode, Status, StickyEntry } from './types';
+import type { ContainerNode, LineCursor, Status } from './types';
 
 const OVERSCAN = 12;
 // Browsers cap the maximum height of a single element. Firefox is the strictest
@@ -192,6 +192,18 @@ function findBodyRenderer(children: ReactNode): (() => ReactNode) | null {
   return hasBody ? (found ?? defaultBodyRenderer) : null;
 }
 
+interface WrapperEntry {
+  id: number;
+  depth: number;
+  lineIdx: number;
+  subtreeLines: number;
+}
+
+interface VisibleEntry {
+  line: LineCursor;
+  idx: number;
+}
+
 export type ViewportProps = HTMLAttributes<HTMLDivElement> & { children?: ReactNode };
 
 const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
@@ -209,7 +221,6 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   const containerRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
-  const [scrollLeft, setScrollLeft] = useState(0);
   const [containerHeight, setContainerHeight] = useState(560);
   // Extra document-space pixel offset on top of the linear scrollTop mapping.
   // Used only when the document height exceeds the browser's element-height
@@ -239,7 +250,9 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
 
   // Geometry. When fullHeight exceeds SAFE_MAX_SPACER_HEIGHT, the spacer is
   // capped and `factor` > 1 turns the scrollbar into a coarse navigator. The
-  // wheel handler keeps pixel precision via `localOffset`.
+  // wheel handler keeps pixel precision via `localOffset`. In that mode the
+  // sticky-wrapper render path can't run (CSS sticky needs scroll positions to
+  // match content positions), so we fall back to absolute-positioned rows.
   const fullHeight = totalLines * ROW_HEIGHT;
   const spacerHeight = Math.max(Math.min(fullHeight, SAFE_MAX_SPACER_HEIGHT), ROW_HEIGHT);
   const scrollRange = Math.max(1, spacerHeight - containerHeight);
@@ -268,7 +281,6 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const next = e.currentTarget.scrollTop;
     setScrollTop(next);
-    setScrollLeft(e.currentTarget.scrollLeft);
     if (programmaticScrollRef.current) {
       programmaticScrollRef.current = false;
       return;
@@ -301,12 +313,10 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   const startIdx = Math.max(0, Math.floor(docScrollTop / ROW_HEIGHT) - OVERSCAN);
   const endIdx = Math.min(totalLines, Math.ceil((docScrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN);
 
-  // Sticky chain: walk down from root, at each depth pick the child container
-  // whose doc-y range covers scrollTop + (depth+1)*RH. Include a container
-  // only once its open row has scrolled strictly past its slot, and drop it
-  // once its close has fully scrolled past viewport top.
-  const stickyChain: StickyEntry[] = [];
-  if (nodes.length > 0) {
+  // Walk root → deepest non-transparent ancestor whose body covers the
+  // viewport. Each entry becomes a wrapper div with a position:sticky open.
+  const wrapperChain: WrapperEntry[] = [];
+  if (nodes.length > 0 && factor === 1) {
     let curId = 0;
     let curOpen = 0;
     let depth = 0;
@@ -317,13 +327,13 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       if (cc.collapsed || cc.childIds.length === 0) break;
       const transparent = cc.transparent === true;
       if (!transparent) {
-        const slotY = depth * ROW_HEIGHT;
-        if (curOpen * ROW_HEIGHT >= docScrollTop + slotY) break;
-        const closeIdx = curOpen + cc.subtreeLines - 1;
-        if ((closeIdx + 1) * ROW_HEIGHT <= docScrollTop) break;
-        stickyChain.push({ id: curId, depth, lineIdx: curOpen });
+        wrapperChain.push({
+          id: curId,
+          depth,
+          lineIdx: curOpen,
+          subtreeLines: cc.subtreeLines,
+        });
       }
-
       const nextDepth = transparent ? depth : depth + 1;
       const targetY = docScrollTop + nextDepth * ROW_HEIGHT;
       let childOpen = transparent ? curOpen : curOpen + 1;
@@ -345,13 +355,21 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       depth = nextDepth;
     }
   }
-  const stickyIds = new Set(stickyChain.map((s) => s.id));
+  const wrapperIds = new Set(wrapperChain.map((w) => w.id));
 
-  const visibleLines: { line: ReturnType<typeof nextLine>; idx: number }[] = [];
+  // Deepest level that is currently pinned — used to mark the bottom of the
+  // stacked sticky group (e.g. for a drop shadow under it).
+  let lastPinnedLevel = -1;
+  for (let i = 0; i < wrapperChain.length; i++) {
+    const e = wrapperChain[i]!;
+    if (e.lineIdx * ROW_HEIGHT < docScrollTop + e.depth * ROW_HEIGHT) lastPinnedLevel = i;
+  }
+
+  const visibleLines: VisibleEntry[] = [];
   if (totalLines > 0) {
     const first = getLineAt(startIdx, nodes);
     if (first) {
-      let line: ReturnType<typeof nextLine> = first.line;
+      let line: LineCursor | null = first.line;
       let i = startIdx;
       while (line && i < endIdx) {
         visibleLines.push({ line, idx: i });
@@ -359,6 +377,235 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
         i += 1;
       }
     }
+  }
+
+  const buildLineCtx = (
+    entry: VisibleEntry,
+    isSticky: boolean,
+    toggle: () => void,
+  ): LineContextValue | null => {
+    const node = nodes[entry.line.id];
+    if (!node) return null;
+    const parent = node.parentId >= 0 ? nodes[node.parentId]! : null;
+    return {
+      node,
+      parent,
+      kind: entry.line.kind,
+      depth: entry.line.depth,
+      lineIdx: entry.idx,
+      isSticky,
+      toggle,
+    };
+  };
+
+  const renderInFlowRow = (entry: VisibleEntry): ReactNode => {
+    const node = nodes[entry.line.id];
+    if (!node) return null;
+    const ctx = buildLineCtx(entry, false, () => store.toggleCollapse(node.id));
+    if (!ctx) return null;
+    return (
+      <LineContext.Provider key={`${entry.line.id}-${entry.line.kind}-${entry.idx}`} value={ctx}>
+        <div className="sjv-row-wrap" style={{ height: ROW_HEIGHT }}>
+          {renderRow()}
+        </div>
+      </LineContext.Provider>
+    );
+  };
+
+  let mainContent: ReactNode;
+
+  if (factor === 1) {
+    // Bucket visible rows by deepest enclosing wrapper. Wrapper opens are
+    // skipped — each wrapper renders its own sticky open. A wrapper "owns"
+    // [lineIdx, lineIdx + subtreeLines - 1) — its open + middle, but NOT its
+    // close. The close-row sits as a sibling after the wrapper in the parent's
+    // flow (or spacer-level for the root) so the close visually pushes the
+    // sticky open up, one row apart, instead of overlapping at the same y.
+    const buckets: VisibleEntry[][] = wrapperChain.map(() => []);
+    const spacerBucket: VisibleEntry[] = [];
+    for (const item of visibleLines) {
+      if (item.line.kind === 'open' && wrapperIds.has(item.line.id)) continue;
+      let assigned = false;
+      for (let k = wrapperChain.length - 1; k >= 0; k--) {
+        const w = wrapperChain[k]!;
+        if (item.idx >= w.lineIdx && item.idx < w.lineIdx + w.subtreeLines - 1) {
+          buckets[k]!.push(item);
+          assigned = true;
+          break;
+        }
+      }
+      if (!assigned) spacerBucket.push(item);
+    }
+
+    const renderWrapper = (level: number): ReactNode => {
+      const entry = wrapperChain[level]!;
+      const node = nodes[entry.id];
+      if (!node) return null;
+      const parent = node.parentId >= 0 ? nodes[node.parentId]! : null;
+      const innerStart = entry.lineIdx + 1;
+      // Exclude the close (it renders as a sibling after the wrapper).
+      const innerEnd = entry.lineIdx + entry.subtreeLines - 1;
+      const bucket = buckets[level]!;
+      const nested = wrapperChain[level + 1];
+      // Sticky pins when the open's natural y has scrolled above the row's
+      // sticky `top` offset (= depth * ROW_HEIGHT).
+      const pinned = entry.lineIdx * ROW_HEIGHT < docScrollTop + entry.depth * ROW_HEIGHT;
+
+      const stickyOpenCtx: LineContextValue = {
+        node,
+        parent,
+        kind: 'open',
+        depth: entry.depth,
+        lineIdx: entry.lineIdx,
+        isSticky: pinned,
+        toggle: pinned
+          ? () => handleStickyToggle(entry.id, entry.lineIdx, level)
+          : () => store.toggleCollapse(entry.id),
+      };
+
+      const before: VisibleEntry[] = [];
+      const after: VisibleEntry[] = [];
+      if (nested) {
+        for (const it of bucket) {
+          if (it.idx < nested.lineIdx) before.push(it);
+          else after.push(it);
+        }
+      } else {
+        for (const it of bucket) before.push(it);
+      }
+
+      const flow: ReactNode[] = [];
+      let cursor = innerStart;
+      const pushSpacer = (target: number, key: string) => {
+        if (target > cursor) {
+          flow.push(
+            <div key={key} aria-hidden style={{ height: (target - cursor) * ROW_HEIGHT }} />,
+          );
+          cursor = target;
+        }
+      };
+
+      for (const it of before) {
+        pushSpacer(it.idx, `s-${it.idx}`);
+        flow.push(renderInFlowRow(it));
+        cursor = it.idx + 1;
+      }
+      if (nested) {
+        pushSpacer(nested.lineIdx, `s-pre-w${level + 1}`);
+        flow.push(renderWrapper(level + 1));
+        // Wrapper occupies (subtreeLines - 1) rows; nested's close is in this
+        // (parent's) bucket and renders next as a normal in-flow row.
+        cursor = nested.lineIdx + nested.subtreeLines - 1;
+      }
+      for (const it of after) {
+        pushSpacer(it.idx, `s-${it.idx}`);
+        flow.push(renderInFlowRow(it));
+        cursor = it.idx + 1;
+      }
+      pushSpacer(innerEnd, `s-bot-w${level}`);
+
+      return (
+        <div
+          key={`w-${entry.id}`}
+          className="sjv-wrapper"
+          style={{ height: (entry.subtreeLines - 1) * ROW_HEIGHT }}
+        >
+          <LineContext.Provider value={stickyOpenCtx}>
+            <div
+              className="sjv-wrapper-open"
+              data-sticky={pinned ? '' : undefined}
+              data-sticky-last={pinned && level === lastPinnedLevel ? '' : undefined}
+              style={{
+                top: entry.depth * ROW_HEIGHT,
+                height: ROW_HEIGHT,
+                // Outer wrappers paint above inner ones so the inner sticky
+                // slides under the outer when its close pushes it up.
+                zIndex: 100 - level,
+              }}
+            >
+              {renderRow()}
+            </div>
+          </LineContext.Provider>
+          {flow}
+        </div>
+      );
+    };
+
+    type SpacerItem =
+      | { kind: 'row'; idx: number; entry: VisibleEntry }
+      | { kind: 'wrapper'; idx: number; size: number };
+    const items: SpacerItem[] = [];
+    for (const e of spacerBucket) items.push({ kind: 'row', idx: e.idx, entry: e });
+    if (wrapperChain.length > 0) {
+      const w0 = wrapperChain[0]!;
+      items.push({ kind: 'wrapper', idx: w0.lineIdx, size: w0.subtreeLines });
+    }
+    items.sort((a, b) => a.idx - b.idx);
+
+    const spacerChildren: ReactNode[] = [];
+    let cursor = 0;
+    const pushSpacer = (target: number, key: string) => {
+      if (target > cursor) {
+        spacerChildren.push(
+          <div key={key} aria-hidden style={{ height: (target - cursor) * ROW_HEIGHT }} />,
+        );
+        cursor = target;
+      }
+    };
+    for (const it of items) {
+      pushSpacer(it.idx, `sp-${it.idx}`);
+      if (it.kind === 'row') {
+        spacerChildren.push(renderInFlowRow(it.entry));
+        cursor = it.idx + 1;
+      } else {
+        spacerChildren.push(renderWrapper(0));
+        // Wrapper occupies (size - 1) rows; the root close is a spacer-level
+        // row at idx = it.idx + it.size - 1 and renders next from the bucket.
+        cursor = it.idx + it.size - 1;
+      }
+    }
+    pushSpacer(totalLines, `sp-end`);
+
+    mainContent = (
+      <div className="sjv-spacer" style={{ height: spacerHeight, position: 'relative' }}>
+        {spacerChildren}
+      </div>
+    );
+  } else {
+    // Pixel-cap fallback: spacer is capped, scrollTop ≠ docScrollTop. CSS
+    // sticky has no fixed point of reference here, so render flat absolute
+    // rows at viewport-relative positions. Sticky behavior is not provided
+    // in this mode (accepted: only triggers above ~363k lines).
+    const rows = visibleLines.map(({ line, idx }) => {
+      const node = nodes[line.id];
+      if (!node) return null;
+      const parent = node.parentId >= 0 ? nodes[node.parentId]! : null;
+      const rowTop = idx * ROW_HEIGHT - docScrollTop + scrollTop;
+      const ctx: LineContextValue = {
+        node,
+        parent,
+        kind: line.kind,
+        depth: line.depth,
+        lineIdx: idx,
+        isSticky: false,
+        toggle: () => store.toggleCollapse(node.id),
+      };
+      return (
+        <LineContext.Provider key={`${line.id}-${line.kind}-${idx}`} value={ctx}>
+          <div
+            className="sjv-row-wrap"
+            style={{ position: 'absolute', top: rowTop, left: 0, right: 0, height: ROW_HEIGHT }}
+          >
+            {renderRow()}
+          </div>
+        </LineContext.Provider>
+      );
+    });
+    mainContent = (
+      <div className="sjv-spacer" style={{ height: spacerHeight, position: 'relative' }}>
+        {rows}
+      </div>
+    );
   }
 
   const mergedStyle: CSSProperties = {
@@ -370,72 +617,8 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   return (
     <div ref={setRefs} className={`sjv-viewport ${className ?? ''}`} style={mergedStyle} {...rest}>
       <div className="sjv-scroll" ref={scrollRef} onScroll={onScroll}>
-        <div className="sjv-spacer" style={{ height: spacerHeight, position: 'relative' }}>
-          {renderRow &&
-            visibleLines.map(({ line, idx }) => {
-              if (!line) return null;
-              const node = nodes[line.id];
-              if (!node) return null;
-              if (line.kind === 'open' && stickyIds.has(line.id)) return null;
-              const parent = node.parentId >= 0 ? nodes[node.parentId]! : null;
-              // Position relative to viewport. With factor === 1 this reduces
-              // to idx * ROW_HEIGHT (rows pinned to spacer y). With clipping,
-              // adding scrollTop cancels the scroll element's own scroll so the
-              // row visually lands at viewport y = idx*ROW_HEIGHT - docScrollTop.
-              const rowTop = idx * ROW_HEIGHT - docScrollTop + scrollTop;
-              const lineCtx: LineContextValue = {
-                node,
-                parent,
-                kind: line.kind,
-                depth: line.depth,
-                lineIdx: idx,
-                isSticky: false,
-                toggle: () => store.toggleCollapse(node.id),
-              };
-              return (
-                <LineContext.Provider key={`${line.id}-${line.kind}-${idx}`} value={lineCtx}>
-                  <div
-                    className="sjv-row-wrap"
-                    style={{ position: 'absolute', top: rowTop, left: 0, right: 0, height: ROW_HEIGHT }}
-                  >
-                    {renderRow()}
-                  </div>
-                </LineContext.Provider>
-              );
-            })}
-        </div>
+        {mainContent}
       </div>
-
-      {stickyChain.length > 0 && renderRow && (
-        <div className="sjv-sticky" style={{ transform: `translateX(${-scrollLeft}px)` }}>
-          {stickyChain.map((entry, i) => {
-            const node = nodes[entry.id];
-            if (!node) return null;
-            const parent = node.parentId >= 0 ? nodes[node.parentId]! : null;
-            const lineCtx: LineContextValue = {
-              node,
-              parent,
-              kind: 'open',
-              depth: entry.depth,
-              lineIdx: entry.lineIdx,
-              isSticky: true,
-              toggle: () => handleStickyToggle(node.id, entry.lineIdx, i),
-            };
-            return (
-              <LineContext.Provider key={`s-${entry.id}`} value={lineCtx}>
-                <div
-                  className="sjv-sticky-row"
-                  data-sticky=""
-                  style={{ top: i * ROW_HEIGHT, height: ROW_HEIGHT }}
-                >
-                  {renderRow()}
-                </div>
-              </LineContext.Provider>
-            );
-          })}
-          <div className="sjv-sticky-shadow" style={{ top: stickyChain.length * ROW_HEIGHT }} />
-        </div>
-      )}
     </div>
   );
 });

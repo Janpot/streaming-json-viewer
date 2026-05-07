@@ -25,17 +25,11 @@
   position: relative;
 }
 
-.sjv-sticky {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  pointer-events: none;
+.sjv-wrapper {
+  position: relative;
 }
 
-.sjv-sticky-row {
-  position: absolute;
-  left: 0;
-  right: 0;
-  pointer-events: auto;
+.sjv-wrapper-open {
+  position: sticky;
+  z-index: 2;
 }

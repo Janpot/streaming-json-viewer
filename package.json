@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "pnpm -F streaming-json-viewer build",
-    "dev": "pnpm -F docs dev",
+    "dev": "pnpm -r --parallel --stream dev",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
