@@ -176,7 +176,9 @@ export default function Page() {
           <div className="viewer-shell" key={active.key}>
             <JsonViewer.Root value={active.value} format={active.format}>
               <JsonViewer.StatusBar />
-              <JsonViewer.Viewport style={{ flex: 1 }} />
+              <JsonViewer.Viewport style={{ flex: 1 }}>
+                <JsonViewer.Body />
+              </JsonViewer.Viewport>
             </JsonViewer.Root>
           </div>
         )}

@@ -1,5 +1,7 @@
 import {
+  Children,
   forwardRef,
+  isValidElement,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -16,7 +18,7 @@ import { createTokenizer } from './tokenizer';
 import { createParser } from './parser';
 import { createTreeBuilder, getLineAt, nextLine } from './tree';
 import { ingest, type StreamValue } from './ingest';
-import { ROW_HEIGHT, RowContent } from './Row';
+import { Line, LineContext, ROW_HEIGHT, type LineContextValue } from './Row';
 import type { ContainerNode, Status, StickyEntry } from './types';
 
 const OVERSCAN = 12;
@@ -161,12 +163,45 @@ function StatusBar({ className, ...rest }: StatusBarProps) {
   );
 }
 
-export type ViewportProps = HTMLAttributes<HTMLDivElement>;
+export interface BodyProps {
+  children?: () => ReactNode;
+}
+
+const defaultBodyRenderer = () => <Line />;
+
+/**
+ * Slot/marker. The render-prop runs once per visible row + once per sticky row
+ * inside a LineContext provider. Use `useLine()` (or render `<JsonViewer.Line />`)
+ * to read the current row's data. When omitted, defaults to rendering `<JsonViewer.Line />`.
+ */
+function Body(_props: BodyProps): null {
+  return null;
+}
+Body.displayName = 'JsonViewer.Body';
+
+function findBodyRenderer(children: ReactNode): (() => ReactNode) | null {
+  let found: (() => ReactNode) | null = null;
+  let hasBody = false;
+  Children.forEach(children, (child) => {
+    if (isValidElement(child) && child.type === Body) {
+      hasBody = true;
+      const renderer = (child.props as BodyProps).children;
+      if (renderer) found = renderer;
+    }
+  });
+  return hasBody ? (found ?? defaultBodyRenderer) : null;
+}
+
+export type ViewportProps = HTMLAttributes<HTMLDivElement> & { children?: ReactNode };
 
 const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
-  { className, style, ...rest },
+  { className, style, children, ...rest },
   forwardedRef,
 ) {
+  const renderRow = findBodyRenderer(children);
+  if (!renderRow) {
+    throw new Error('JsonViewer.Viewport requires a JsonViewer.Body child');
+  }
   const store = useStore();
   useStoreVersion(store);
   const { nodes, totalLines } = store;
@@ -336,56 +371,66 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     <div ref={setRefs} className={`sjv-viewport ${className ?? ''}`} style={mergedStyle} {...rest}>
       <div className="sjv-scroll" ref={scrollRef} onScroll={onScroll}>
         <div className="sjv-spacer" style={{ height: spacerHeight, position: 'relative' }}>
-          {visibleLines.map(({ line, idx }) => {
-            if (!line) return null;
-            const node = nodes[line.id];
-            if (!node) return null;
-            if (line.kind === 'open' && stickyIds.has(line.id)) return null;
-            const parent = node.parentId >= 0 ? nodes[node.parentId]! : null;
-            // Position relative to viewport. With factor === 1 this reduces
-            // to idx * ROW_HEIGHT (rows pinned to spacer y). With clipping,
-            // adding scrollTop cancels the scroll element's own scroll so the
-            // row visually lands at viewport y = idx*ROW_HEIGHT - docScrollTop.
-            const rowTop = idx * ROW_HEIGHT - docScrollTop + scrollTop;
-            return (
-              <div
-                key={`${line.id}-${line.kind}-${idx}`}
-                style={{ position: 'absolute', top: rowTop, left: 0, right: 0, height: ROW_HEIGHT }}
-              >
-                <RowContent
-                  node={node}
-                  parentNode={parent}
-                  kind={line.kind}
-                  depth={line.depth}
-                  onToggle={(id) => store.toggleCollapse(id)}
-                />
-              </div>
-            );
-          })}
+          {renderRow &&
+            visibleLines.map(({ line, idx }) => {
+              if (!line) return null;
+              const node = nodes[line.id];
+              if (!node) return null;
+              if (line.kind === 'open' && stickyIds.has(line.id)) return null;
+              const parent = node.parentId >= 0 ? nodes[node.parentId]! : null;
+              // Position relative to viewport. With factor === 1 this reduces
+              // to idx * ROW_HEIGHT (rows pinned to spacer y). With clipping,
+              // adding scrollTop cancels the scroll element's own scroll so the
+              // row visually lands at viewport y = idx*ROW_HEIGHT - docScrollTop.
+              const rowTop = idx * ROW_HEIGHT - docScrollTop + scrollTop;
+              const lineCtx: LineContextValue = {
+                node,
+                parent,
+                kind: line.kind,
+                depth: line.depth,
+                lineIdx: idx,
+                isSticky: false,
+                toggle: () => store.toggleCollapse(node.id),
+              };
+              return (
+                <LineContext.Provider key={`${line.id}-${line.kind}-${idx}`} value={lineCtx}>
+                  <div
+                    className="sjv-row-wrap"
+                    style={{ position: 'absolute', top: rowTop, left: 0, right: 0, height: ROW_HEIGHT }}
+                  >
+                    {renderRow()}
+                  </div>
+                </LineContext.Provider>
+              );
+            })}
         </div>
       </div>
 
-      {stickyChain.length > 0 && (
+      {stickyChain.length > 0 && renderRow && (
         <div className="sjv-sticky" style={{ transform: `translateX(${-scrollLeft}px)` }}>
           {stickyChain.map((entry, i) => {
             const node = nodes[entry.id];
             if (!node) return null;
             const parent = node.parentId >= 0 ? nodes[node.parentId]! : null;
+            const lineCtx: LineContextValue = {
+              node,
+              parent,
+              kind: 'open',
+              depth: entry.depth,
+              lineIdx: entry.lineIdx,
+              isSticky: true,
+              toggle: () => handleStickyToggle(node.id, entry.lineIdx, i),
+            };
             return (
-              <div
-                key={`s-${entry.id}`}
-                className="sjv-sticky-row"
-                style={{ top: i * ROW_HEIGHT, height: ROW_HEIGHT }}
-              >
-                <RowContent
-                  node={node}
-                  parentNode={parent}
-                  kind="open"
-                  depth={entry.depth}
-                  onToggle={(id) => handleStickyToggle(id, entry.lineIdx, i)}
-                  isSticky
-                />
-              </div>
+              <LineContext.Provider key={`s-${entry.id}`} value={lineCtx}>
+                <div
+                  className="sjv-sticky-row"
+                  data-sticky=""
+                  style={{ top: i * ROW_HEIGHT, height: ROW_HEIGHT }}
+                >
+                  {renderRow()}
+                </div>
+              </LineContext.Provider>
             );
           })}
           <div className="sjv-sticky-shadow" style={{ top: stickyChain.length * ROW_HEIGHT }} />
@@ -399,4 +444,6 @@ export const JsonViewer = {
   Root,
   StatusBar,
   Viewport,
+  Body,
+  Line,
 };

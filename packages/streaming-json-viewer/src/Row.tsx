@@ -1,8 +1,28 @@
-import type { CSSProperties } from 'react';
+import { createContext, useContext, type CSSProperties, type HTMLAttributes } from 'react';
 import type { ContainerNode, LineCursor, PrimitiveNode, TreeNode } from './types';
 
 export const ROW_HEIGHT = 22;
 export const INDENT = 16;
+
+export interface LineContextValue {
+  node: TreeNode;
+  parent: TreeNode | null;
+  kind: LineCursor['kind'];
+  depth: number;
+  lineIdx: number;
+  isSticky: boolean;
+  toggle: () => void;
+}
+
+export const LineContext = createContext<LineContextValue | null>(null);
+
+export function useLine(): LineContextValue {
+  const ctx = useContext(LineContext);
+  if (!ctx) {
+    throw new Error('useLine must be used inside a JsonViewer.Body row render');
+  }
+  return ctx;
+}
 
 interface ChevronProps {
   open: boolean;
@@ -34,31 +54,28 @@ function formatPrimitive(node: PrimitiveNode): { className: string; text: string
   return { className: 'sjv-null', text: 'null' };
 }
 
-interface RowContentProps {
-  node: TreeNode;
-  parentNode: TreeNode | null;
-  kind: LineCursor['kind'];
-  depth: number;
-  onToggle: (id: number) => void;
-  isSticky?: boolean;
-}
+export type LineProps = HTMLAttributes<HTMLDivElement>;
 
-export function RowContent({ node, parentNode, kind, depth, onToggle, isSticky }: RowContentProps) {
+export function Line({ className, style, onClick, ...rest }: LineProps) {
+  const { node, parent, kind, depth, toggle } = useLine();
   const isContainer = node.type === 'object' || node.type === 'array';
   const indent = depth * INDENT;
   const open = node.type === 'object' ? '{' : '[';
   const close = node.type === 'object' ? '}' : ']';
   const showKey =
     kind !== 'close' &&
-    parentNode &&
-    parentNode.type === 'object' &&
+    parent &&
+    parent.type === 'object' &&
     node.key !== null;
 
   if (kind === 'close') {
+    const mergedStyle: CSSProperties = { paddingLeft: indent + 8 + 14, ...style };
     return (
       <div
-        className={`sjv-row ${isSticky ? 'sjv-row-sticky' : ''}`}
-        style={{ paddingLeft: indent + 8 + 14 }}
+        className={`sjv-row${className ? ` ${className}` : ''}`}
+        style={mergedStyle}
+        onClick={onClick}
+        {...rest}
       >
         <span className="sjv-bracket">{close}</span>
       </div>
@@ -70,13 +87,16 @@ export function RowContent({ node, parentNode, kind, depth, onToggle, isSticky }
     const empty = c.childIds.length === 0;
     const count = c.childIds.length;
     const collapsed = c.collapsed;
+    const mergedStyle: CSSProperties = { paddingLeft: indent + 8, ...style };
     return (
       <div
-        className={`sjv-row sjv-row-clickable ${isSticky ? 'sjv-row-sticky' : ''}`}
-        style={{ paddingLeft: indent + 8 }}
-        onClick={() => {
-          if (!empty) onToggle(node.id);
+        className={`sjv-row sjv-row-clickable${className ? ` ${className}` : ''}`}
+        style={mergedStyle}
+        onClick={(e) => {
+          onClick?.(e);
+          if (!e.defaultPrevented && !empty) toggle();
         }}
+        {...rest}
       >
         <Chevron open={!collapsed} hidden={empty} />
         {showKey && (
@@ -105,11 +125,14 @@ export function RowContent({ node, parentNode, kind, depth, onToggle, isSticky }
     );
   }
 
-  const { className, text } = formatPrimitive(node as PrimitiveNode);
+  const { className: tokenClassName, text } = formatPrimitive(node as PrimitiveNode);
+  const mergedStyle: CSSProperties = { paddingLeft: indent + 8 + 14, ...style };
   return (
     <div
-      className={`sjv-row ${isSticky ? 'sjv-row-sticky' : ''}`}
-      style={{ paddingLeft: indent + 8 + 14 }}
+      className={`sjv-row${className ? ` ${className}` : ''}`}
+      style={mergedStyle}
+      onClick={onClick}
+      {...rest}
     >
       {showKey && (
         <>
@@ -117,7 +140,7 @@ export function RowContent({ node, parentNode, kind, depth, onToggle, isSticky }
           <span className="sjv-colon">: </span>
         </>
       )}
-      <span className={className}>{text}</span>
+      <span className={tokenClassName}>{text}</span>
     </div>
   );
 }

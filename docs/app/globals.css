@@ -193,3 +193,208 @@ body {
 .arch code {
   color: var(--accent);
 }
+
+/* ---------------------------------------------------------------------------
+ * streaming-json-viewer — visual theme (consumer-owned).
+ * The library ships structural CSS only; everything below is the docs site's
+ * own decoration of the documented class hooks and [data-sticky] attribute.
+ * ------------------------------------------------------------------------- */
+
+.sjv-viewport,
+.sjv-meta {
+  --sjv-row-height: 22px;
+  --sjv-font-mono: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, Consolas, monospace;
+  --sjv-font-size: 12.5px;
+
+  --sjv-bg: #0a0b0d;
+  --sjv-bg-subtle: #111216;
+  --sjv-bg-emphasis: #15171c;
+  --sjv-bg-sticky: #181a20;
+  --sjv-bg-hover: #1a1d23;
+  --sjv-border: #20232b;
+
+  --sjv-fg: #d8dade;
+  --sjv-fg-dim: #8b8f99;
+  --sjv-fg-faint: #555964;
+
+  --sjv-accent: #f3a847;
+
+  --sjv-key: #7aa7d8;
+  --sjv-string: #c8a36a;
+  --sjv-number: #d97757;
+  --sjv-bool: #9b88d4;
+  --sjv-null: #6b7280;
+  --sjv-bracket: #6b7280;
+
+  --sjv-error: #e06c75;
+  --sjv-ok: #6fb07a;
+}
+
+.sjv-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--sjv-bg-emphasis);
+  border-bottom: 1px solid var(--sjv-border);
+  color: var(--sjv-fg);
+  font-family: var(--sjv-font-mono);
+  flex-shrink: 0;
+}
+.sjv-meta-group {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+.sjv-stat {
+  font-size: 11px;
+}
+.sjv-stat-label {
+  color: var(--sjv-fg-faint);
+  margin-right: 6px;
+}
+.sjv-stat-value {
+  color: var(--sjv-fg);
+  font-weight: 500;
+}
+.sjv-status {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.sjv-status-stream {
+  background: color-mix(in srgb, var(--sjv-accent) 12%, transparent);
+  color: var(--sjv-accent);
+}
+.sjv-status-done {
+  background: color-mix(in srgb, var(--sjv-ok) 12%, transparent);
+  color: var(--sjv-ok);
+}
+.sjv-status-error {
+  background: color-mix(in srgb, var(--sjv-error) 12%, transparent);
+  color: var(--sjv-error);
+}
+.sjv-status-idle {
+  color: var(--sjv-fg-faint);
+}
+.sjv-pulse {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--sjv-accent);
+  animation: sjv-pulse 1s ease-in-out infinite;
+}
+@keyframes sjv-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+
+.sjv-viewport {
+  background: var(--sjv-bg-subtle);
+  color: var(--sjv-fg);
+}
+.sjv-scroll {
+  font-family: var(--sjv-font-mono);
+  font-size: var(--sjv-font-size);
+  line-height: var(--sjv-row-height);
+}
+.sjv-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.sjv-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sjv-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 5px;
+  border: 2px solid var(--sjv-bg-subtle);
+}
+.sjv-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.sjv-sticky {
+  font-family: var(--sjv-font-mono);
+  font-size: var(--sjv-font-size);
+  line-height: var(--sjv-row-height);
+}
+.sjv-sticky-row {
+  background: var(--sjv-bg-sticky);
+}
+.sjv-sticky-shadow {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 6px;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0));
+  pointer-events: none;
+}
+
+.sjv-row {
+  height: var(--sjv-row-height);
+  line-height: var(--sjv-row-height);
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  padding-right: 16px;
+  color: var(--sjv-fg);
+}
+[data-sticky] .sjv-row {
+  box-shadow: inset 2px 0 0 var(--sjv-accent);
+}
+.sjv-row-clickable {
+  cursor: pointer;
+}
+.sjv-row-clickable:hover {
+  background: var(--sjv-bg-hover);
+}
+.sjv-chevron {
+  display: inline-flex;
+  width: 14px;
+  color: var(--sjv-fg-faint);
+  transition: transform 80ms;
+}
+.sjv-key {
+  color: var(--sjv-key);
+}
+.sjv-colon {
+  color: var(--sjv-fg-faint);
+}
+.sjv-bracket {
+  color: var(--sjv-bracket);
+}
+.sjv-string {
+  color: var(--sjv-string);
+}
+.sjv-number {
+  color: var(--sjv-number);
+}
+.sjv-bool {
+  color: var(--sjv-bool);
+}
+.sjv-null {
+  color: var(--sjv-null);
+  font-style: italic;
+}
+.sjv-ellipsis {
+  color: var(--sjv-fg-faint);
+  padding: 0 4px;
+}
+.sjv-count {
+  color: var(--sjv-fg-faint);
+  font-size: 10.5px;
+  margin-left: 8px;
+  font-style: italic;
+}

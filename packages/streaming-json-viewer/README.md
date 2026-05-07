@@ -8,7 +8,9 @@ import 'streaming-json-viewer/styles.css';
 
 <JsonViewer.Root value={jsonStringOrStream}>
   <JsonViewer.StatusBar />
-  <JsonViewer.Viewport style={{ flex: 1 }} />
+  <JsonViewer.Viewport style={{ flex: 1 }}>
+    <JsonViewer.Body />
+  </JsonViewer.Viewport>
 </JsonViewer.Root>;
 ```
 
@@ -30,7 +32,19 @@ Renders a status bar with bytes / nodes / lines / status pill. Forwards HTML pro
 
 ### `<JsonViewer.Viewport>`
 
-Renders the virtualized scroll surface and sticky ancestor headers. Forwards HTML props and `ref`.
+Renders the virtualized scroll surface and sticky ancestor headers. Forwards HTML props and `ref`. Requires a `<JsonViewer.Body />` child.
+
+### `<JsonViewer.Body>`
+
+Slot for the per-row renderer. With no children it renders the default `<JsonViewer.Line />` for each row. Pass a render-prop to customize:
+
+```tsx
+<JsonViewer.Body>
+  {() => <JsonViewer.Line className="my-row" />}
+</JsonViewer.Body>
+```
+
+Inside the render-prop, call `useLine()` to read the current row's node, depth, kind, and toggle.
 
 ## Theming
 
