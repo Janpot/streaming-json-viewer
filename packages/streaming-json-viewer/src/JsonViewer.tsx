@@ -340,7 +340,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
                   parentNode={parent}
                   kind="open"
                   depth={entry.depth}
-                  onToggle={(id) => toggleCollapse(id, entry.lineIdx)}
+                  onToggle={(id) => toggleCollapse(id, entry.lineIdx - i)}
                   isSticky
                 />
               </div>
