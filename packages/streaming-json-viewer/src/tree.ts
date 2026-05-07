@@ -3,6 +3,7 @@ import type { ParserHandlers } from './parser';
 
 export function nodeSubtreeLines(node: TreeNode): number {
   if (node.type !== 'object' && node.type !== 'array') return 1;
+  if (node.transparent) return node.childrenSum;
   if (node.collapsed) return 1;
   if (node.childIds.length === 0) return 1;
   return 2 + node.childrenSum;
@@ -132,21 +133,26 @@ export function getLineAt(targetIdx: number, nodes: TreeNode[]): LineLookupResul
 
   while (true) {
     const node = nodes[curId]!;
-    if (remaining === 0) return { line: { id: curId, depth, kind: 'open' }, path };
-
     const isContainer = node.type === 'object' || node.type === 'array';
+    const transparent = isContainer && (node as ContainerNode).transparent === true;
+    if (!transparent && remaining === 0) {
+      return { line: { id: curId, depth, kind: 'open' }, path };
+    }
+
     if (!isContainer || node.collapsed || node.childIds.length === 0) return null;
 
-    path.push({ id: curId, depth, lineIdx });
-    remaining -= 1;
-    lineIdx += 1;
+    if (!transparent) {
+      path.push({ id: curId, depth, lineIdx });
+      remaining -= 1;
+      lineIdx += 1;
+    }
 
     let descended = false;
     for (const cid of node.childIds) {
       const cc = nodes[cid]!.subtreeLines;
       if (remaining < cc) {
         curId = cid;
-        depth += 1;
+        if (!transparent) depth += 1;
         descended = true;
         break;
       }
@@ -154,7 +160,9 @@ export function getLineAt(targetIdx: number, nodes: TreeNode[]): LineLookupResul
       lineIdx += cc;
     }
     if (!descended) {
-      if (remaining === 0) return { line: { id: curId, depth, kind: 'close' }, path };
+      if (!transparent && remaining === 0) {
+        return { line: { id: curId, depth, kind: 'close' }, path };
+      }
       return null;
     }
   }
@@ -171,12 +179,22 @@ export function nextLine(nodes: TreeNode[], line: LineCursor): LineCursor | null
   ) {
     return { id: node.childIds[0]!, depth: line.depth + 1, kind: 'open' };
   }
-  const cur = node;
-  const parentId = cur.parentId;
-  if (parentId === -1) return null;
-  const parent = nodes[parentId] as ContainerNode;
-  if (cur.siblingIdx < parent.childIds.length - 1) {
-    return { id: parent.childIds[cur.siblingIdx + 1]!, depth: line.depth, kind: 'open' };
+  let curId = line.id;
+  const depth = line.depth;
+  while (true) {
+    const cur = nodes[curId]!;
+    const parentId = cur.parentId;
+    if (parentId === -1) return null;
+    const parent = nodes[parentId] as ContainerNode;
+    if (cur.siblingIdx < parent.childIds.length - 1) {
+      return { id: parent.childIds[cur.siblingIdx + 1]!, depth, kind: 'open' };
+    }
+    if (parent.transparent) {
+      // No close line to emit; recurse up to find the next sibling at a
+      // shallower level (or end the iteration).
+      curId = parentId;
+      continue;
+    }
+    return { id: parentId, depth: depth - 1, kind: 'close' };
   }
-  return { id: parentId, depth: line.depth - 1, kind: 'close' };
 }

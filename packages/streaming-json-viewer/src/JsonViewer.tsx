@@ -28,12 +28,16 @@ const SAFE_MAX_SPACER_HEIGHT = 8_000_000;
 
 export interface RootProps {
   value: StreamValue;
+  /** 'json' (default) parses a single top-level value. 'jsonl' / 'ndjson'
+   * parses a stream of newline-separated values, wrapped in an implicit
+   * top-level array. */
+  format?: 'json' | 'jsonl';
   chunkSize?: number;
   onStatusChange?: (status: Status, error?: Error) => void;
   children: ReactNode;
 }
 
-function Root({ value, chunkSize = 65536, onStatusChange, children }: RootProps) {
+function Root({ value, format = 'json', chunkSize = 65536, onStatusChange, children }: RootProps) {
   const storeRef = useRef<JsonViewerStore | null>(null);
   if (!storeRef.current) storeRef.current = new JsonViewerStore();
   const store = storeRef.current;
@@ -53,7 +57,14 @@ function Root({ value, chunkSize = 65536, onStatusChange, children }: RootProps)
     };
     setStatus('streaming');
 
-    const parser = createParser(builder.handlers);
+    if (format === 'jsonl') {
+      // Synthesize an implicit array root so each line lands as a child,
+      // but mark it transparent so its open/close rows aren't rendered and
+      // children appear at depth 0.
+      builder.handlers.openArray(null);
+      (builder.nodes[0] as ContainerNode).transparent = true;
+    }
+    const parser = createParser(builder.handlers, { multiValue: format === 'jsonl' });
     const tokenizer = createTokenizer((t, v) => parser.onToken(t, v));
 
     let raf = 0;
@@ -86,6 +97,7 @@ function Root({ value, chunkSize = 65536, onStatusChange, children }: RootProps)
             },
           });
           if (cancelled) return;
+          if (format === 'jsonl') builder.handlers.closeArray();
           scheduleFlush();
           setStatus('done');
         } catch (e) {
@@ -102,7 +114,7 @@ function Root({ value, chunkSize = 65536, onStatusChange, children }: RootProps)
       abort.abort();
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [value, chunkSize, store]);
+  }, [value, format, chunkSize, store]);
 
   return <JsonViewerContext.Provider value={store}>{children}</JsonViewerContext.Provider>;
 }
@@ -268,14 +280,18 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       if (!cur || (cur.type !== 'object' && cur.type !== 'array')) break;
       const cc = cur as ContainerNode;
       if (cc.collapsed || cc.childIds.length === 0) break;
-      const slotY = depth * ROW_HEIGHT;
-      if (curOpen * ROW_HEIGHT >= docScrollTop + slotY) break;
-      const closeIdx = curOpen + cc.subtreeLines - 1;
-      if ((closeIdx + 1) * ROW_HEIGHT <= docScrollTop) break;
-      stickyChain.push({ id: curId, depth, lineIdx: curOpen });
+      const transparent = cc.transparent === true;
+      if (!transparent) {
+        const slotY = depth * ROW_HEIGHT;
+        if (curOpen * ROW_HEIGHT >= docScrollTop + slotY) break;
+        const closeIdx = curOpen + cc.subtreeLines - 1;
+        if ((closeIdx + 1) * ROW_HEIGHT <= docScrollTop) break;
+        stickyChain.push({ id: curId, depth, lineIdx: curOpen });
+      }
 
-      const targetY = docScrollTop + (depth + 1) * ROW_HEIGHT;
-      let childOpen = curOpen + 1;
+      const nextDepth = transparent ? depth : depth + 1;
+      const targetY = docScrollTop + nextDepth * ROW_HEIGHT;
+      let childOpen = transparent ? curOpen : curOpen + 1;
       let nextId = -1;
       let nextOpen = 0;
       for (const childId of cc.childIds) {
@@ -291,7 +307,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       if (nextId < 0) break;
       curId = nextId;
       curOpen = nextOpen;
-      depth += 1;
+      depth = nextDepth;
     }
   }
   const stickyIds = new Set(stickyChain.map((s) => s.id));

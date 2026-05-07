@@ -40,9 +40,14 @@ export default function Page() {
   const [pasteValue, setPasteValue] = useState(
     '{"hello":"world","nested":{"arr":[1,2,3,true,null]}}',
   );
-  const [active, setActive] = useState<{ value: StreamValue; key: number } | null>(null);
+  const [active, setActive] = useState<{
+    value: StreamValue;
+    format: 'json' | 'jsonl';
+    key: number;
+  } | null>(null);
   const [generating, setGenerating] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [urlFormat, setUrlFormat] = useState<'json' | 'jsonl'>('json');
 
   const run = async () => {
     setFetchError(null);
@@ -51,7 +56,7 @@ export default function Page() {
       await new Promise((r) => setTimeout(r, 16));
       const json = generateDemoJson(demoSize);
       setGenerating(false);
-      setActive({ value: json, key: Date.now() });
+      setActive({ value: json, format: 'json', key: Date.now() });
     } else if (mode === 'url') {
       const url = urlValue.trim();
       if (!url) return;
@@ -59,13 +64,13 @@ export default function Page() {
         const res = await fetch(url);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         if (!res.body) throw new Error('Response has no body');
-        setActive({ value: res.body, key: Date.now() });
+        setActive({ value: res.body, format: urlFormat, key: Date.now() });
       } catch (e) {
         setFetchError(e instanceof Error ? e.message : String(e));
       }
     } else if (mode === 'paste') {
       if (!pasteValue.trim()) return;
-      setActive({ value: pasteValue, key: Date.now() });
+      setActive({ value: pasteValue, format: 'json', key: Date.now() });
     }
   };
 
@@ -135,6 +140,14 @@ export default function Page() {
                 value={urlValue}
                 onChange={(e) => setUrlValue(e.target.value)}
               />
+              <select
+                className="select"
+                value={urlFormat}
+                onChange={(e) => setUrlFormat(e.target.value as 'json' | 'jsonl')}
+              >
+                <option value="json">json</option>
+                <option value="jsonl">jsonl</option>
+              </select>
               <button className="run-btn" onClick={run}>
                 fetch
               </button>
@@ -161,7 +174,7 @@ export default function Page() {
 
         {active && (
           <div className="viewer-shell" key={active.key}>
-            <JsonViewer.Root value={active.value}>
+            <JsonViewer.Root value={active.value} format={active.format}>
               <JsonViewer.StatusBar />
               <JsonViewer.Viewport style={{ flex: 1 }} />
             </JsonViewer.Root>

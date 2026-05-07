@@ -14,13 +14,21 @@ export interface Parser {
   onToken(type: TokenType, value?: TokenValue): void;
 }
 
-export function createParser(handlers: ParserHandlers): Parser {
+export interface ParserOptions {
+  /** Accept multiple top-level values separated by whitespace (JSON Lines). */
+  multiValue?: boolean;
+}
+
+export function createParser(handlers: ParserHandlers, options: ParserOptions = {}): Parser {
+  const { multiValue = false } = options;
   const stack: ('object' | 'array')[] = [];
   let expecting: Expecting = 'value';
   let pendingKey: string | null = null;
 
   function afterValue() {
-    expecting = stack.length === 0 ? 'done' : 'comma_or_close';
+    if (stack.length > 0) expecting = 'comma_or_close';
+    else if (multiValue) expecting = 'value';
+    else expecting = 'done';
   }
 
   function onToken(type: TokenType, value?: TokenValue) {

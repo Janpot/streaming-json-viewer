@@ -13,6 +13,10 @@ export interface ContainerNode extends BaseNode {
   childIds: number[];
   childrenSum: number;
   collapsed: boolean;
+  /** When true, the container's own open/close rows are not rendered and
+   * its children appear at the parent's depth. Used to wrap multiple
+   * top-level JSONL records under a synthetic root. */
+  transparent?: boolean;
 }
 
 export interface PrimitiveNode extends BaseNode {
