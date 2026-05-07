@@ -20,6 +20,11 @@ import { ROW_HEIGHT, RowContent } from './Row';
 import type { ContainerNode, Status, StickyEntry } from './types';
 
 const OVERSCAN = 12;
+// Browsers cap the maximum height of a single element. Firefox is the strictest
+// (~17M px). We stay well below that and decouple the document offset from the
+// native scrollTop above this threshold so the viewer can render any number of
+// rows. See https://rednegra.net/blog/20260212-virtual-scroll/#technique-4-pixel-precise-scroll
+const SAFE_MAX_SPACER_HEIGHT = 8_000_000;
 
 export interface RootProps {
   value: StreamValue;
@@ -159,6 +164,11 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   const [scrollTop, setScrollTop] = useState(0);
   const [scrollLeft, setScrollLeft] = useState(0);
   const [containerHeight, setContainerHeight] = useState(560);
+  // Extra document-space pixel offset on top of the linear scrollTop mapping.
+  // Used only when the document height exceeds the browser's element-height
+  // cap; gives us pixel precision regardless of total size.
+  const [localOffset, setLocalOffset] = useState(0);
+  const programmaticScrollRef = useRef(false);
 
   const setRefs = useCallback(
     (el: HTMLDivElement | null) => {
@@ -180,28 +190,69 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     return () => ro.disconnect();
   }, []);
 
+  // Geometry. When fullHeight exceeds SAFE_MAX_SPACER_HEIGHT, the spacer is
+  // capped and `factor` > 1 turns the scrollbar into a coarse navigator. The
+  // wheel handler keeps pixel precision via `localOffset`.
+  const fullHeight = totalLines * ROW_HEIGHT;
+  const spacerHeight = Math.max(Math.min(fullHeight, SAFE_MAX_SPACER_HEIGHT), ROW_HEIGHT);
+  const scrollRange = Math.max(1, spacerHeight - containerHeight);
+  const docRange = Math.max(0, fullHeight - containerHeight);
+  const factor = docRange === 0 || fullHeight <= SAFE_MAX_SPACER_HEIGHT ? 1 : docRange / scrollRange;
+  const docScrollTop = factor === 1 ? scrollTop : scrollTop * factor + localOffset;
+
   // Click-to-collapse on a sticky header should keep the row pinned at the
   // viewport y where the user clicked. We set scroll synchronously alongside
   // the collapse so the next render uses both the new tree and new scrollTop
   // in the same React batch (no in-between frame).
   const handleStickyToggle = useCallback(
     (id: number, lineIdx: number, slot: number) => {
-      const nextScrollTop = Math.max(0, (lineIdx - slot) * ROW_HEIGHT);
+      const targetDoc = Math.max(0, (lineIdx - slot) * ROW_HEIGHT);
+      const nextScrollTop = factor === 1 ? targetDoc : Math.round(targetDoc / factor);
+      const nextLocal = factor === 1 ? 0 : targetDoc - nextScrollTop * factor;
+      programmaticScrollRef.current = true;
       if (scrollRef.current) scrollRef.current.scrollTop = nextScrollTop;
       setScrollTop(nextScrollTop);
+      setLocalOffset(nextLocal);
       store.toggleCollapse(id);
     },
-    [store],
+    [store, factor],
   );
 
   const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    setScrollTop(e.currentTarget.scrollTop);
+    const next = e.currentTarget.scrollTop;
+    setScrollTop(next);
     setScrollLeft(e.currentTarget.scrollLeft);
+    if (programmaticScrollRef.current) {
+      programmaticScrollRef.current = false;
+      return;
+    }
+    // Native scrollbar drag — drop any fine offset so the document position
+    // matches the bar handle exactly.
+    if (factor !== 1 && localOffset !== 0) setLocalOffset(0);
   };
 
-  const totalHeight = Math.max(totalLines * ROW_HEIGHT, ROW_HEIGHT);
-  const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
-  const endIdx = Math.min(totalLines, Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN);
+  // Pixel-precise wheel: when clipping is active, prevent native scaled scroll
+  // and advance the document offset by exactly deltaY, then resync the
+  // scrollbar handle.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || factor === 1) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const nextDoc = Math.max(0, Math.min(docRange, docScrollTop + e.deltaY));
+      const nextScrollTop = Math.round(nextDoc / factor);
+      const nextLocal = nextDoc - nextScrollTop * factor;
+      programmaticScrollRef.current = true;
+      el.scrollTop = nextScrollTop;
+      setScrollTop(nextScrollTop);
+      setLocalOffset(nextLocal);
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [factor, docRange, docScrollTop]);
+
+  const startIdx = Math.max(0, Math.floor(docScrollTop / ROW_HEIGHT) - OVERSCAN);
+  const endIdx = Math.min(totalLines, Math.ceil((docScrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN);
 
   // Sticky chain: walk down from root, at each depth pick the child container
   // whose doc-y range covers scrollTop + (depth+1)*RH. Include a container
@@ -218,12 +269,12 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       const cc = cur as ContainerNode;
       if (cc.collapsed || cc.childIds.length === 0) break;
       const slotY = depth * ROW_HEIGHT;
-      if (curOpen * ROW_HEIGHT >= scrollTop + slotY) break;
+      if (curOpen * ROW_HEIGHT >= docScrollTop + slotY) break;
       const closeIdx = curOpen + cc.subtreeLines - 1;
-      if ((closeIdx + 1) * ROW_HEIGHT <= scrollTop) break;
+      if ((closeIdx + 1) * ROW_HEIGHT <= docScrollTop) break;
       stickyChain.push({ id: curId, depth, lineIdx: curOpen });
 
-      const targetY = scrollTop + (depth + 1) * ROW_HEIGHT;
+      const targetY = docScrollTop + (depth + 1) * ROW_HEIGHT;
       let childOpen = curOpen + 1;
       let nextId = -1;
       let nextOpen = 0;
@@ -268,17 +319,22 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   return (
     <div ref={setRefs} className={`sjv-viewport ${className ?? ''}`} style={mergedStyle} {...rest}>
       <div className="sjv-scroll" ref={scrollRef} onScroll={onScroll}>
-        <div className="sjv-spacer" style={{ height: totalHeight, position: 'relative' }}>
+        <div className="sjv-spacer" style={{ height: spacerHeight, position: 'relative' }}>
           {visibleLines.map(({ line, idx }) => {
             if (!line) return null;
             const node = nodes[line.id];
             if (!node) return null;
             if (line.kind === 'open' && stickyIds.has(line.id)) return null;
             const parent = node.parentId >= 0 ? nodes[node.parentId]! : null;
+            // Position relative to viewport. With factor === 1 this reduces
+            // to idx * ROW_HEIGHT (rows pinned to spacer y). With clipping,
+            // adding scrollTop cancels the scroll element's own scroll so the
+            // row visually lands at viewport y = idx*ROW_HEIGHT - docScrollTop.
+            const rowTop = idx * ROW_HEIGHT - docScrollTop + scrollTop;
             return (
               <div
                 key={`${line.id}-${line.kind}-${idx}`}
-                style={{ position: 'absolute', top: idx * ROW_HEIGHT, left: 0, right: 0, height: ROW_HEIGHT }}
+                style={{ position: 'absolute', top: rowTop, left: 0, right: 0, height: ROW_HEIGHT }}
               >
                 <RowContent
                   node={node}
