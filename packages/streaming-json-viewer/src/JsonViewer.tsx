@@ -256,19 +256,20 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       const next: StickyEntry[] = [...r.path];
       const top = r.line;
       const node = nodes[top.id];
+      // Include collapsed containers too — the row should *stay* stuck across a
+      // collapse/expand toggle (same pixel position, same sticky styling).
       if (
         top.kind === 'open' &&
         node &&
         (node.type === 'object' || node.type === 'array') &&
-        !(node as ContainerNode).collapsed &&
         (node as ContainerNode).childIds.length > 0
       ) {
         next.push({ id: top.id, depth: top.depth, lineIdx: probeIdx });
       }
-      const same =
-        next.length === stickyChain.length &&
-        next.every((e, i) => e.id === stickyChain[i]!.id);
-      if (same) break;
+      // Only grow the chain. Once a container occupies slot i it stays put;
+      // a probe past a collapsed container (whose next sibling lives at a
+      // lower depth) would otherwise replace the just-collapsed entry.
+      if (next.length <= stickyChain.length) break;
       stickyChain = next;
     }
   }
