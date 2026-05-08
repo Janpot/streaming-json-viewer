@@ -4,7 +4,6 @@ A streaming JSON viewer for React. Incremental parse, virtualized rendering, sti
 
 ```tsx
 import { JsonViewer } from 'streaming-json-viewer';
-import 'streaming-json-viewer/styles.css';
 
 <JsonViewer.Root value={jsonStringOrStream}>
   <div className="my-status-bar">
@@ -124,4 +123,4 @@ Renders the tokenized content of a row inside `<span data-token="content">`. Emi
 
 ## Theming
 
-Override any `--sjv-*` CSS variable on the viewport element (or any ancestor). See `dist/styles.css` for the full list.
+The library ships no CSS — pass your own `className` / `style` to `<JsonViewer.Viewport>` and `<JsonViewer.Line>`, or target the documented data attributes (`[data-token]`, `[data-state]`, `[data-sticky]`) from your stylesheet.

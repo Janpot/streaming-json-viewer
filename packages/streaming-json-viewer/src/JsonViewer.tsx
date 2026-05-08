@@ -243,7 +243,7 @@ interface VisibleEntry {
 export type ViewportProps = HTMLAttributes<HTMLDivElement> & { children?: ReactNode };
 
 const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
-  { className, style, children, ...rest },
+  { className, style, children, onScroll: userOnScroll, ...rest },
   forwardedRef,
 ) {
   const bodyRenderer = findBodyRenderer(children);
@@ -263,8 +263,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   useStoreVersion(store);
   const { nodes, totalLines } = store;
 
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(560);
   // Extra document-space pixel offset on top of the linear scrollTop mapping.
@@ -275,7 +274,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
 
   const setRefs = useCallback(
     (el: HTMLDivElement | null) => {
-      containerRef.current = el;
+      viewportRef.current = el;
       if (typeof forwardedRef === 'function') forwardedRef(el);
       else if (forwardedRef) forwardedRef.current = el;
     },
@@ -283,7 +282,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   );
 
   useLayoutEffect(() => {
-    const el = containerRef.current;
+    const el = viewportRef.current;
     if (!el) return;
     setContainerHeight(el.clientHeight);
     const ro = new ResizeObserver((entries) => {
@@ -316,7 +315,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       const nextScrollTop = factor === 1 ? targetDoc : Math.round(targetDoc / factor);
       const nextLocal = factor === 1 ? 0 : targetDoc - nextScrollTop * factor;
       programmaticScrollRef.current = true;
-      if (scrollRef.current) scrollRef.current.scrollTop = nextScrollTop;
+      if (viewportRef.current) viewportRef.current.scrollTop = nextScrollTop;
       setScrollTop(nextScrollTop);
       setLocalOffset(nextLocal);
       store.toggleCollapse(id);
@@ -329,18 +328,19 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     setScrollTop(next);
     if (programmaticScrollRef.current) {
       programmaticScrollRef.current = false;
-      return;
+    } else if (factor !== 1 && localOffset !== 0) {
+      // Native scrollbar drag — drop any fine offset so the document position
+      // matches the bar handle exactly.
+      setLocalOffset(0);
     }
-    // Native scrollbar drag — drop any fine offset so the document position
-    // matches the bar handle exactly.
-    if (factor !== 1 && localOffset !== 0) setLocalOffset(0);
+    userOnScroll?.(e);
   };
 
   // Pixel-precise wheel: when clipping is active, prevent native scaled scroll
   // and advance the document offset by exactly deltaY, then resync the
   // scrollbar handle.
   useEffect(() => {
-    const el = scrollRef.current;
+    const el = viewportRef.current;
     if (!el || factor === 1) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
@@ -582,16 +582,23 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
 
   const mergedStyle: CSSProperties = {
     position: 'relative',
-    overflow: 'hidden',
+    overflow: 'auto',
+    overscrollBehavior: 'none',
+    scrollbarGutter: 'stable',
+    contain: 'strict',
     boxSizing: 'border-box',
     ...style,
   };
 
   return (
-    <div ref={setRefs} className={className} style={mergedStyle} {...rest}>
-      <div className="sjv-scroll" ref={scrollRef} onScroll={onScroll}>
-        {mainContent}
-      </div>
+    <div
+      ref={setRefs}
+      className={className}
+      style={mergedStyle}
+      onScroll={onScroll}
+      {...rest}
+    >
+      {mainContent}
     </div>
   );
 });

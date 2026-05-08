@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
-import 'streaming-json-viewer/styles.css';
 import './globals.css';
 
 export const metadata: Metadata = {
