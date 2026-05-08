@@ -1,19 +1,17 @@
 'use client';
 
-import { JsonViewer } from 'streaming-json-viewer';
-import type { StreamValue } from 'streaming-json-viewer';
+import { JsonViewer, type StreamValue } from 'streaming-json-viewer';
 import { Chevron } from './chevron';
 import './demo-viewer.css';
 
 type Props = {
   value: StreamValue | null;
-  format?: 'json' | 'jsonl';
 };
 
-export function DemoViewer({ value, format = 'json' }: Props) {
+export function DemoViewer({ value }: Props) {
   return (
     <div className="viewer-shell">
-      <JsonViewer.Root value={value} format={format}>
+      <JsonViewer.Root value={value}>
         <div className="meta">
           <div className="meta-group">
             <span className="stat">

@@ -30,16 +30,12 @@ const SAFE_MAX_SPACER_HEIGHT = 8_000_000;
 
 export interface RootProps {
   value: StreamValue | null;
-  /** 'json' (default) parses a single top-level value. 'jsonl' / 'ndjson'
-   * parses a stream of newline-separated values, wrapped in an implicit
-   * top-level array. */
-  format?: 'json' | 'jsonl';
   chunkSize?: number;
   onStatusChange?: (status: Status, error?: Error) => void;
   children: ReactNode;
 }
 
-function Root({ value, format = 'json', chunkSize = 65536, onStatusChange, children }: RootProps) {
+function Root({ value, chunkSize = 65536, onStatusChange, children }: RootProps) {
   const storeRef = useRef<JsonViewerStore | null>(null);
   if (!storeRef.current) storeRef.current = new JsonViewerStore();
   const store = storeRef.current;
@@ -67,14 +63,12 @@ function Root({ value, format = 'json', chunkSize = 65536, onStatusChange, child
 
     setStatus('streaming');
 
-    if (format === 'jsonl') {
-      // Synthesize an implicit array root so each line lands as a child,
-      // but mark it transparent so its open/close rows aren't rendered and
-      // children appear at depth 0.
-      builder.handlers.openArray(null);
-      (builder.nodes[0] as ContainerNode).transparent = true;
-    }
-    const parser = createParser(builder.handlers, { multiValue: format === 'jsonl' });
+    // Wrap input in a transparent array root so multiple top-level values
+    // (JSON Lines, concatenated JSON) land as siblings at depth 0. Single-
+    // value input shows as just that value — the wrapper is never rendered.
+    builder.handlers.openArray(null);
+    (builder.nodes[0] as ContainerNode).transparent = true;
+    const parser = createParser(builder.handlers, { multiValue: true });
     const tokenizer = createTokenizer((t, v) => parser.onToken(t, v));
 
     let raf = 0;
@@ -107,7 +101,7 @@ function Root({ value, format = 'json', chunkSize = 65536, onStatusChange, child
             },
           });
           if (cancelled) return;
-          if (format === 'jsonl') builder.handlers.closeArray();
+          builder.handlers.closeArray();
           scheduleFlush();
           setStatus('done');
         } catch (e) {
@@ -124,7 +118,7 @@ function Root({ value, format = 'json', chunkSize = 65536, onStatusChange, child
       abort.abort();
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [value, format, chunkSize, store]);
+  }, [value, chunkSize, store]);
 
   return <JsonViewerContext.Provider value={store}>{children}</JsonViewerContext.Provider>;
 }
