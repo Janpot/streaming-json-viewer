@@ -7,7 +7,10 @@ import { JsonViewer } from 'streaming-json-viewer';
 import 'streaming-json-viewer/styles.css';
 
 <JsonViewer.Root value={jsonStringOrStream}>
-  <JsonViewer.StatusBar />
+  <div className="my-status-bar">
+    <JsonViewer.Bytes /> bytes · <JsonViewer.NodeCount /> nodes ·{' '}
+    <JsonViewer.LineCount /> lines · <JsonViewer.Status />
+  </div>
   <JsonViewer.Viewport style={{ flex: 1 }}>
     <JsonViewer.Body />
   </JsonViewer.Viewport>
@@ -26,9 +29,13 @@ import 'streaming-json-viewer/styles.css';
 
 Renders no DOM element — sets up shared state for the parts.
 
-### `<JsonViewer.StatusBar>`
+### `<JsonViewer.Bytes>` · `<JsonViewer.NodeCount>` · `<JsonViewer.LineCount>`
 
-Renders a status bar with bytes / nodes / lines / status pill. Forwards HTML props.
+Render `<span>`s with the running byte count, node count, and total line count from the active ingestion. Forward HTML props.
+
+### `<JsonViewer.Status>`
+
+Renders `<span data-status="idle | streaming | done | error">{text}</span>`. Style each variant via `[data-status='streaming']` etc. Forwards HTML props.
 
 ### `<JsonViewer.Viewport>`
 

@@ -1,7 +1,6 @@
 export { JsonViewer } from './JsonViewer';
 export type {
   RootProps,
-  StatusBarProps,
   StatProps,
   StatusProps,
   ViewportProps,

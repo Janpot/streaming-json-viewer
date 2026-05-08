@@ -125,17 +125,6 @@ function useStoreVersion(store: JsonViewerStore): number {
   return useSyncExternalStore(store.subscribe, store.getVersion, store.getVersion);
 }
 
-export type StatusBarProps = HTMLAttributes<HTMLDivElement>;
-
-/**
- * Container for status-bar parts. Renders a plain `<div>` and passes through
- * className/style/etc. — the consumer composes its content from the leaf
- * parts (Bytes, NodeCount, LineCount, Status) with their own classes.
- */
-function StatusBar(props: StatusBarProps) {
-  return <div {...props} />;
-}
-
 export type StatProps = HTMLAttributes<HTMLSpanElement>;
 
 function Bytes(props: StatProps) {
@@ -573,7 +562,6 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
 
 export const JsonViewer = {
   Root,
-  StatusBar,
   Bytes,
   NodeCount,
   LineCount,

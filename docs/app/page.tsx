@@ -175,7 +175,7 @@ export default function Page() {
         {active && (
           <div className="viewer-shell" key={active.key}>
             <JsonViewer.Root value={active.value} format={active.format}>
-              <JsonViewer.StatusBar className="meta">
+              <div className="meta">
                 <div className="meta-group">
                   <span className="stat">
                     <span className="stat-label">bytes</span>
@@ -193,7 +193,7 @@ export default function Page() {
                 <div className="meta-group">
                   <JsonViewer.Status className="status" />
                 </div>
-              </JsonViewer.StatusBar>
+              </div>
               <JsonViewer.Viewport className="json-viewer" style={{ flex: 1 }}>
                 <JsonViewer.Body>{() => <JsonViewer.Line className="row" />}</JsonViewer.Body>
               </JsonViewer.Viewport>

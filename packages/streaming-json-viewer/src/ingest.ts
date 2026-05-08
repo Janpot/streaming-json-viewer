@@ -8,6 +8,29 @@ export interface IngestOptions {
   chunkSize?: number;
 }
 
+const DEFAULT_YIELD_BUDGET_MS = 5;
+
+type Scheduler = { yield?: () => Promise<void> };
+const schedulerImpl: Scheduler | undefined = (globalThis as { scheduler?: Scheduler }).scheduler;
+
+/**
+ * Returns an `await`-able yield helper. On Chromium with `scheduler.yield()`
+ * each call yields (cheap, resumes same task at high priority). Elsewhere the
+ * helper is budget-gated: it skips the await until `budgetMs` has elapsed
+ * since the last actual yield, then falls back to `setTimeout(0)`.
+ */
+function makeYielder(budgetMs: number = DEFAULT_YIELD_BUDGET_MS): () => Promise<void> {
+  if (typeof schedulerImpl?.yield === 'function') {
+    return () => schedulerImpl.yield!();
+  }
+  let lastYield = performance.now();
+  return async () => {
+    if (performance.now() - lastYield < budgetMs) return;
+    await new Promise((r) => setTimeout(r, 0));
+    lastYield = performance.now();
+  };
+}
+
 export async function ingest(
   value: StreamValue,
   tokenizer: Tokenizer,
@@ -24,13 +47,14 @@ async function ingestString(
   tokenizer: Tokenizer,
   { signal, onProgress, chunkSize = 65536 }: IngestOptions,
 ) {
+  const yieldToMain = makeYielder();
   let pos = 0;
   while (pos < str.length) {
     if (signal.aborted) return;
     tokenizer.feed(str.slice(pos, pos + chunkSize));
     pos += chunkSize;
     onProgress(Math.min(pos, str.length));
-    await new Promise((r) => setTimeout(r, 0));
+    await yieldToMain();
   }
   tokenizer.end();
 }
