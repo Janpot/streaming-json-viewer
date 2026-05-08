@@ -312,16 +312,19 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     [store, factor],
   );
 
-  // Scroll a line into the visible band if it's outside it. Used by keyboard
-  // navigation; same factor/local-offset arithmetic as handleStickyToggle.
+  // Scroll a line into the visible band if it's outside it. The top
+  // `depth * ROW_HEIGHT` of the viewport is reserved for sticky-pinned
+  // ancestors, so a row at that depth must clear that gutter to be visible —
+  // otherwise it slides under the sticky headers and looks lost.
   const ensureLineVisible = useCallback(
-    (lineIdx: number) => {
+    (lineIdx: number, depth: number) => {
       const lineTop = lineIdx * ROW_HEIGHT;
       const lineBottom = lineTop + ROW_HEIGHT;
-      const visibleTop = docScrollTop;
+      const stickyGutter = depth * ROW_HEIGHT;
+      const visibleTop = docScrollTop + stickyGutter;
       const visibleBottom = docScrollTop + containerHeight;
       let targetDoc = -1;
-      if (lineTop < visibleTop) targetDoc = Math.max(0, lineTop);
+      if (lineTop < visibleTop) targetDoc = Math.max(0, lineTop - stickyGutter);
       else if (lineBottom > visibleBottom)
         targetDoc = Math.max(0, lineBottom - containerHeight);
       if (targetDoc < 0) return;
@@ -338,7 +341,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   const moveFocus = useCallback(
     (id: number) => {
       const lineIdx = getNodeLineIdx(nodes, id);
-      if (lineIdx !== null) ensureLineVisible(lineIdx);
+      if (lineIdx !== null) ensureLineVisible(lineIdx, getRenderDepth(nodes, id));
       shouldFocusDomRef.current = true;
       store.setFocused(id);
     },
