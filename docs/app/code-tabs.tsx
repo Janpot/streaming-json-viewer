@@ -26,7 +26,7 @@ export function CodeTabs({ files }: Props) {
         <span>{expanded ? 'hide the code' : 'show the code'}</span>
       </button>
       {expanded && active && (
-        <>
+        <div className="code-panel">
           <div className="code-tabs-bar">
             {files.map((file) => (
               <button
@@ -39,7 +39,7 @@ export function CodeTabs({ files }: Props) {
             ))}
           </div>
           <div className="code-block" dangerouslySetInnerHTML={{ __html: active.html }} />
-        </>
+        </div>
       )}
     </div>
   );

@@ -1,18 +1,13 @@
 .code-tabs {
-  margin-bottom: 14px;
-  background: var(--bg-subtle);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow: hidden;
+  margin-top: 14px;
 }
 .code-toggle {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
   background: transparent;
   border: none;
-  padding: 10px 14px;
+  padding: 0;
   color: var(--fg-dim);
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
@@ -30,10 +25,17 @@
 .code-toggle-icon-open {
   transform: rotate(90deg);
 }
+
+.code-panel {
+  margin-top: 10px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
 .code-tabs-bar {
   display: flex;
   background: var(--bg-emphasis);
-  border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }
 .code-tab {

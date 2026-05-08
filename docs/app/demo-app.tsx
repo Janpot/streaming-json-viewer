@@ -31,13 +31,26 @@ function generateDemoJson(count: number): string {
   });
 }
 
-type Mode = 'demo' | 'url' | 'paste';
+type Tab = '1.5mb' | '15mb' | 'url' | 'text';
+
+const SIZES: Record<'1.5mb' | '15mb', number> = {
+  '1.5mb': 10000,
+  '15mb': 100000,
+};
+
+function isTab(v: string | null): v is Tab {
+  return v === '1.5mb' || v === '15mb' || v === 'url' || v === 'text';
+}
+
+function inferFormat(url: string): 'json' | 'jsonl' {
+  const path = url.split('?')[0]?.toLowerCase() ?? '';
+  return path.endsWith('.jsonl') || path.endsWith('.ndjson') ? 'jsonl' : 'json';
+}
 
 export function DemoApp() {
-  const [mode, setMode] = useState<Mode>('demo');
-  const [demoSize, setDemoSize] = useState(10000);
+  const [activeTab, setActiveTab] = useState<Tab>('1.5mb');
   const [urlValue, setUrlValue] = useState('');
-  const [pasteValue, setPasteValue] = useState(
+  const [textValue, setTextValue] = useState(
     '{"hello":"world","nested":{"arr":[1,2,3,true,null]}}',
   );
   const [active, setActive] = useState<{
@@ -45,134 +58,123 @@ export function DemoApp() {
     format: 'json' | 'jsonl';
     key: number;
   } | null>(null);
-  const [generating, setGenerating] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [urlFormat, setUrlFormat] = useState<'json' | 'jsonl'>('json');
 
-  const run = async () => {
+  const loadDemo = async (count: number) => {
     setFetchError(null);
-    if (mode === 'demo') {
-      setGenerating(true);
-      await new Promise((r) => setTimeout(r, 16));
-      const json = generateDemoJson(demoSize);
-      setGenerating(false);
-      setActive({ value: json, format: 'json', key: Date.now() });
-    } else if (mode === 'url') {
-      const url = urlValue.trim();
-      if (!url) return;
-      try {
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        if (!res.body) throw new Error('Response has no body');
-        setActive({ value: res.body, format: urlFormat, key: Date.now() });
-      } catch (e) {
-        setFetchError(e instanceof Error ? e.message : String(e));
-      }
-    } else if (mode === 'paste') {
-      if (!pasteValue.trim()) return;
-      setActive({ value: pasteValue, format: 'json', key: Date.now() });
+    setBusy(true);
+    await new Promise((r) => setTimeout(r, 16));
+    const json = generateDemoJson(count);
+    setActive({ value: json, format: 'json', key: Date.now() });
+    setBusy(false);
+  };
+
+  const loadUrl = async () => {
+    setFetchError(null);
+    const url = urlValue.trim();
+    if (!url) return;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.body) throw new Error('Response has no body');
+      setActive({ value: res.body, format: inferFormat(url), key: Date.now() });
+    } catch (e) {
+      setFetchError(e instanceof Error ? e.message : String(e));
     }
+  };
+
+  const loadText = () => {
+    if (!textValue.trim()) return;
+    setActive({ value: textValue, format: 'json', key: Date.now() });
   };
 
   useEffect(() => {
     const tab = new URLSearchParams(window.location.search).get('tab');
-    if (tab === 'url' || tab === 'paste') {
-      setMode(tab);
-    } else {
-      void run();
+    const initial: Tab = isTab(tab) ? tab : '1.5mb';
+    setActiveTab(initial);
+    if (initial === '1.5mb' || initial === '15mb') {
+      void loadDemo(SIZES[initial]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const switchMode = (next: Mode) => {
-    setMode(next);
+  const switchTab = (next: Tab) => {
+    setActiveTab(next);
     const url = new URL(window.location.href);
-    if (next === 'demo') url.searchParams.delete('tab');
+    if (next === '1.5mb') url.searchParams.delete('tab');
     else url.searchParams.set('tab', next);
     window.history.replaceState(null, '', url);
+
+    if (next === '1.5mb' || next === '15mb') {
+      void loadDemo(SIZES[next]);
+    }
   };
 
   return (
     <>
-      <div className="controls">
-        <div className="mode-row">
-          <button
-            className={`mode-btn ${mode === 'demo' ? 'mode-btn-active' : ''}`}
-            onClick={() => switchMode('demo')}
-          >
-            demo
-          </button>
-          <button
-            className={`mode-btn ${mode === 'url' ? 'mode-btn-active' : ''}`}
-            onClick={() => switchMode('url')}
-          >
-            url
-          </button>
-          <button
-            className={`mode-btn ${mode === 'paste' ? 'mode-btn-active' : ''}`}
-            onClick={() => switchMode('paste')}
-          >
-            paste
-          </button>
-        </div>
-
-        {mode === 'demo' && (
-          <div className="input-row">
-            <select
-              className="select"
-              value={demoSize}
-              onChange={(e) => setDemoSize(parseInt(e.target.value))}
-            >
-              <option value={1000}>1,000 items (~145 KB)</option>
-              <option value={10000}>10,000 items (~1.5 MB)</option>
-              <option value={50000}>50,000 items (~7.5 MB)</option>
-              <option value={100000}>100,000 items (~15 MB)</option>
-            </select>
-            <button className="run-btn" onClick={run} disabled={generating}>
-              {generating ? 'generating…' : 'parse'}
-            </button>
-          </div>
-        )}
-
-        {mode === 'url' && (
-          <div className="input-row">
-            <input
-              className="input"
-              type="text"
-              placeholder="https://example.com/data.json (must allow CORS)"
-              value={urlValue}
-              onChange={(e) => setUrlValue(e.target.value)}
-            />
-            <select
-              className="select"
-              value={urlFormat}
-              onChange={(e) => setUrlFormat(e.target.value as 'json' | 'jsonl')}
-            >
-              <option value="json">json</option>
-              <option value="jsonl">jsonl</option>
-            </select>
-            <button className="run-btn" onClick={run}>
-              fetch
-            </button>
-          </div>
-        )}
-        {fetchError && mode === 'url' && <div className="fetch-error">{fetchError}</div>}
-
-        {mode === 'paste' && (
-          <div className="input-row">
-            <textarea
-              className="textarea"
-              placeholder="paste JSON here…"
-              value={pasteValue}
-              onChange={(e) => setPasteValue(e.target.value)}
-            />
-            <button className="run-btn" onClick={run}>
-              parse
-            </button>
-          </div>
-        )}
+      <div className="demo-actions">
+        <button
+          className={`demo-action ${activeTab === '1.5mb' ? 'demo-action-active' : ''}`}
+          onClick={() => switchTab('1.5mb')}
+          disabled={busy}
+        >
+          ~1.5MB
+        </button>
+        <button
+          className={`demo-action ${activeTab === '15mb' ? 'demo-action-active' : ''}`}
+          onClick={() => switchTab('15mb')}
+          disabled={busy}
+        >
+          15MB
+        </button>
+        <button
+          className={`demo-action ${activeTab === 'url' ? 'demo-action-active' : ''}`}
+          onClick={() => switchTab('url')}
+          disabled={busy}
+        >
+          url
+        </button>
+        <button
+          className={`demo-action ${activeTab === 'text' ? 'demo-action-active' : ''}`}
+          onClick={() => switchTab('text')}
+          disabled={busy}
+        >
+          text
+        </button>
       </div>
 
+      {activeTab === 'url' && (
+        <div className="demo-input-row">
+          <input
+            className="input"
+            type="text"
+            placeholder="https://example.com/data.json (must allow CORS)"
+            value={urlValue}
+            onChange={(e) => setUrlValue(e.target.value)}
+          />
+          <button className="run-btn" onClick={loadUrl}>
+            fetch
+          </button>
+        </div>
+      )}
+      {activeTab === 'url' && fetchError && <div className="fetch-error">{fetchError}</div>}
+
+      {activeTab === 'text' && (
+        <div className="demo-input-row">
+          <textarea
+            className="textarea"
+            placeholder="paste JSON here…"
+            value={textValue}
+            onChange={(e) => setTextValue(e.target.value)}
+          />
+          <button className="run-btn" onClick={loadText}>
+            parse
+          </button>
+        </div>
+      )}
+
+      <div className="section-label">demo:</div>
       <DemoViewer value={active?.value ?? null} format={active?.format} />
     </>
   );

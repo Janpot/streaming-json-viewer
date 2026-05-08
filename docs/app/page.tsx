@@ -43,16 +43,17 @@ export default async function Page() {
         </header>
 
         <p className="intro">
-          A{' '}
+          A composable, user-styled React component for viewing JSON and JSON Lines data, inspired
+          by{' '}
           <a className="link" href="https://base-ui.com" target="_blank" rel="noreferrer">
             Base UI
           </a>
-          -inspired React component for viewing JSON and JSON Lines data — handles millions of
-          lines, parses incrementally as bytes arrive, and stays interactive throughout.
+          . Handles millions of lines, parses incrementally as bytes arrive, and stays interactive
+          throughout.
         </p>
 
-        <CodeTabs files={files} />
         <DemoApp />
+        <CodeTabs files={files} />
       </div>
     </div>
   );
