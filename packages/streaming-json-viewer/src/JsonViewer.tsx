@@ -417,260 +417,131 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     };
   };
 
-  const renderInFlowRow = (entry: VisibleEntry): ReactNode => {
+  // Bucket visible rows by deepest enclosing wrapper. Wrapper opens are
+  // skipped — each wrapper renders its own sticky open. A wrapper "owns"
+  // [lineIdx, lineIdx + subtreeLines - 1) — its open + middle, but NOT its
+  // close. The close-row goes to the parent's bucket (or spacerBucket for the
+  // root) so the close visually pushes the sticky open up, one row apart.
+  const buckets: VisibleEntry[][] = wrapperChain.map(() => []);
+  const spacerBucket: VisibleEntry[] = [];
+  for (const item of visibleLines) {
+    if (item.line.kind === 'open' && wrapperIds.has(item.line.id)) continue;
+    let assigned = false;
+    for (let k = wrapperChain.length - 1; k >= 0; k--) {
+      const w = wrapperChain[k]!;
+      if (item.idx >= w.lineIdx && item.idx < w.lineIdx + w.subtreeLines - 1) {
+        buckets[k]!.push(item);
+        assigned = true;
+        break;
+      }
+    }
+    if (!assigned) spacerBucket.push(item);
+  }
+
+  // translateY shifts content from doc-pixel coords into the capped-spacer
+  // coord system. Zero when factor==1; equals scrollTop - docScrollTop in
+  // pixel-cap mode so absolute positions land at the right viewport y.
+  const translateY = scrollTop - docScrollTop;
+
+  const renderAbsRow = (entry: VisibleEntry, top: number): ReactNode => {
     const node = nodes[entry.line.id];
     if (!node) return null;
     const ctx = buildLineCtx(entry, false, () => store.toggleCollapse(node.id));
     if (!ctx) return null;
     return (
       <LineContext.Provider key={`${entry.line.id}-${entry.line.kind}-${entry.idx}`} value={ctx}>
-        <div className="sjv-row-wrap" style={{ height: ROW_HEIGHT }}>
+        <div
+          className="sjv-row-wrap"
+          style={{ position: 'absolute', top, left: 0, right: 0, height: ROW_HEIGHT }}
+        >
           {renderRow()}
         </div>
       </LineContext.Provider>
     );
   };
 
-  let mainContent: ReactNode;
+  const renderWrapper = (level: number): ReactNode => {
+    const entry = wrapperChain[level]!;
+    const node = nodes[entry.id];
+    if (!node) return null;
+    const parent = node.parentId >= 0 ? nodes[node.parentId]! : null;
+    const bucket = buckets[level]!;
+    const nested = wrapperChain[level + 1];
 
-  if (factor === 1) {
-    // Bucket visible rows by deepest enclosing wrapper. Wrapper opens are
-    // skipped — each wrapper renders its own sticky open. A wrapper "owns"
-    // [lineIdx, lineIdx + subtreeLines - 1) — its open + middle, but NOT its
-    // close. The close-row sits as a sibling after the wrapper in the parent's
-    // flow (or spacer-level for the root) so the close visually pushes the
-    // sticky open up, one row apart, instead of overlapping at the same y.
-    const buckets: VisibleEntry[][] = wrapperChain.map(() => []);
-    const spacerBucket: VisibleEntry[] = [];
-    for (const item of visibleLines) {
-      if (item.line.kind === 'open' && wrapperIds.has(item.line.id)) continue;
-      let assigned = false;
-      for (let k = wrapperChain.length - 1; k >= 0; k--) {
-        const w = wrapperChain[k]!;
-        if (item.idx >= w.lineIdx && item.idx < w.lineIdx + w.subtreeLines - 1) {
-          buckets[k]!.push(item);
-          assigned = true;
-          break;
-        }
-      }
-      if (!assigned) spacerBucket.push(item);
-    }
+    // Wrapper top: relative to parent wrapper (for nested) or relative to
+    // spacer (for root, with translateY for pixel-cap mode).
+    const wrapperTop =
+      level === 0
+        ? Math.round(entry.lineIdx * ROW_HEIGHT + translateY)
+        : (entry.lineIdx - wrapperChain[level - 1]!.lineIdx) * ROW_HEIGHT;
+    // Wrapper height excludes the close row (close lives in parent's bucket).
+    const wrapperHeight = (entry.subtreeLines - 1) * ROW_HEIGHT;
 
-    const renderWrapper = (level: number): ReactNode => {
-      const entry = wrapperChain[level]!;
-      const node = nodes[entry.id];
-      if (!node) return null;
-      const parent = node.parentId >= 0 ? nodes[node.parentId]! : null;
-      const innerStart = entry.lineIdx + 1;
-      // Exclude the close (it renders as a sibling after the wrapper).
-      const innerEnd = entry.lineIdx + entry.subtreeLines - 1;
-      const bucket = buckets[level]!;
-      const nested = wrapperChain[level + 1];
-      // Sticky pins when the open's natural y has scrolled above the row's
-      // sticky `top` offset (= depth * ROW_HEIGHT).
-      const pinned = entry.lineIdx * ROW_HEIGHT < docScrollTop + entry.depth * ROW_HEIGHT;
+    // CSS sticky: pin at depth*ROW_HEIGHT relative to the scroll container.
+    // The wrapper's height is the range the sticky stays pinned over; when
+    // the wrapper bottom approaches, sticky gets pushed up automatically.
+    const pinned = entry.lineIdx * ROW_HEIGHT < docScrollTop + entry.depth * ROW_HEIGHT;
 
-      const stickyOpenCtx: LineContextValue = {
-        node,
-        parent,
-        kind: 'open',
-        depth: entry.depth,
-        lineIdx: entry.lineIdx,
-        isSticky: pinned,
-        toggle: pinned
-          ? () => handleStickyToggle(entry.id, entry.lineIdx, level)
-          : () => store.toggleCollapse(entry.id),
-      };
-
-      const before: VisibleEntry[] = [];
-      const after: VisibleEntry[] = [];
-      if (nested) {
-        for (const it of bucket) {
-          if (it.idx < nested.lineIdx) before.push(it);
-          else after.push(it);
-        }
-      } else {
-        for (const it of bucket) before.push(it);
-      }
-
-      const flow: ReactNode[] = [];
-      let cursor = innerStart;
-      const pushSpacer = (target: number, key: string) => {
-        if (target > cursor) {
-          flow.push(
-            <div key={key} aria-hidden style={{ height: (target - cursor) * ROW_HEIGHT }} />,
-          );
-          cursor = target;
-        }
-      };
-
-      for (const it of before) {
-        pushSpacer(it.idx, `s-${it.idx}`);
-        flow.push(renderInFlowRow(it));
-        cursor = it.idx + 1;
-      }
-      if (nested) {
-        pushSpacer(nested.lineIdx, `s-pre-w${level + 1}`);
-        flow.push(renderWrapper(level + 1));
-        // Wrapper occupies (subtreeLines - 1) rows; nested's close is in this
-        // (parent's) bucket and renders next as a normal in-flow row.
-        cursor = nested.lineIdx + nested.subtreeLines - 1;
-      }
-      for (const it of after) {
-        pushSpacer(it.idx, `s-${it.idx}`);
-        flow.push(renderInFlowRow(it));
-        cursor = it.idx + 1;
-      }
-      pushSpacer(innerEnd, `s-bot-w${level}`);
-
-      return (
-        <div
-          key={`w-${entry.id}`}
-          className="sjv-wrapper"
-          style={{ height: (entry.subtreeLines - 1) * ROW_HEIGHT }}
-        >
-          <LineContext.Provider value={stickyOpenCtx}>
-            <div
-              className="sjv-wrapper-open"
-              data-sticky={pinned ? '' : undefined}
-              data-sticky-last={pinned && level === lastPinnedLevel ? '' : undefined}
-              style={{
-                top: entry.depth * ROW_HEIGHT,
-                height: ROW_HEIGHT,
-                // Outer wrappers paint above inner ones so the inner sticky
-                // slides under the outer when its close pushes it up.
-                zIndex: 100 - level,
-              }}
-            >
-              {renderRow()}
-            </div>
-          </LineContext.Provider>
-          {flow}
-        </div>
-      );
+    const stickyOpenCtx: LineContextValue = {
+      node,
+      parent,
+      kind: 'open',
+      depth: entry.depth,
+      lineIdx: entry.lineIdx,
+      isSticky: pinned,
+      toggle: pinned
+        ? () => handleStickyToggle(entry.id, entry.lineIdx, level)
+        : () => store.toggleCollapse(entry.id),
     };
 
-    type SpacerItem =
-      | { kind: 'row'; idx: number; entry: VisibleEntry }
-      | { kind: 'wrapper'; idx: number; size: number };
-    const items: SpacerItem[] = [];
-    for (const e of spacerBucket) items.push({ kind: 'row', idx: e.idx, entry: e });
-    if (wrapperChain.length > 0) {
-      const w0 = wrapperChain[0]!;
-      items.push({ kind: 'wrapper', idx: w0.lineIdx, size: w0.subtreeLines });
-    }
-    items.sort((a, b) => a.idx - b.idx);
-
-    const spacerChildren: ReactNode[] = [];
-    let cursor = 0;
-    const pushSpacer = (target: number, key: string) => {
-      if (target > cursor) {
-        spacerChildren.push(
-          <div key={key} aria-hidden style={{ height: (target - cursor) * ROW_HEIGHT }} />,
-        );
-        cursor = target;
-      }
-    };
-    for (const it of items) {
-      pushSpacer(it.idx, `sp-${it.idx}`);
-      if (it.kind === 'row') {
-        spacerChildren.push(renderInFlowRow(it.entry));
-        cursor = it.idx + 1;
-      } else {
-        spacerChildren.push(renderWrapper(0));
-        // Wrapper occupies (size - 1) rows; the root close is a spacer-level
-        // row at idx = it.idx + it.size - 1 and renders next from the bucket.
-        cursor = it.idx + it.size - 1;
-      }
-    }
-    pushSpacer(totalLines, `sp-end`);
-
-    mainContent = (
-      <div className="sjv-spacer" style={{ height: spacerHeight, position: 'relative' }}>
-        {spacerChildren}
-      </div>
-    );
-  } else {
-    // Pixel-cap fallback: spacer is capped, scrollTop ≠ docScrollTop. CSS
-    // sticky can't be used here, so we manually pin headers as absolutely
-    // positioned overlays at viewport-relative slots.
-    const rows = visibleLines.map(({ line, idx }) => {
-      // Skip rows that will be rendered as a pinned sticky overlay.
-      if (line.kind === 'open' && wrapperIds.has(line.id)) return null;
-      const node = nodes[line.id];
-      if (!node) return null;
-      const parent = node.parentId >= 0 ? nodes[node.parentId]! : null;
-      const rowTop = Math.round(idx * ROW_HEIGHT - docScrollTop + scrollTop);
-      const ctx: LineContextValue = {
-        node,
-        parent,
-        kind: line.kind,
-        depth: line.depth,
-        lineIdx: idx,
-        isSticky: false,
-        toggle: () => store.toggleCollapse(node.id),
-      };
-      return (
-        <LineContext.Provider key={`${line.id}-${line.kind}-${idx}`} value={ctx}>
-          <div
-            className="sjv-row-wrap"
-            style={{ position: 'absolute', top: rowTop, left: 0, right: 0, height: ROW_HEIGHT }}
-          >
-            {renderRow()}
-          </div>
-        </LineContext.Provider>
-      );
-    });
-
-    const stickyRows = wrapperChain.map((entry, level) => {
-      const node = nodes[entry.id];
-      if (!node) return null;
-      const parent = node.parentId >= 0 ? nodes[node.parentId]! : null;
-      const naturalViewportY = entry.lineIdx * ROW_HEIGHT - docScrollTop;
-      const pinSlot = entry.depth * ROW_HEIGHT;
-      const closeViewportY = (entry.lineIdx + entry.subtreeLines - 1) * ROW_HEIGHT - docScrollTop;
-      const pinned = naturalViewportY < pinSlot;
-      const viewportY = pinned ? Math.min(pinSlot, closeViewportY - ROW_HEIGHT) : naturalViewportY;
-      const top = Math.round(scrollTop + viewportY);
-      const ctx: LineContextValue = {
-        node,
-        parent,
-        kind: 'open',
-        depth: entry.depth,
-        lineIdx: entry.lineIdx,
-        isSticky: pinned,
-        toggle: pinned
-          ? () => handleStickyToggle(entry.id, entry.lineIdx, level)
-          : () => store.toggleCollapse(entry.id),
-      };
-      return (
-        <LineContext.Provider key={`sticky-${entry.id}`} value={ctx}>
+    return (
+      <div
+        key={`w-${entry.id}`}
+        className="sjv-wrapper"
+        style={{
+          position: 'absolute',
+          top: wrapperTop,
+          left: 0,
+          right: 0,
+          height: wrapperHeight,
+        }}
+      >
+        <LineContext.Provider value={stickyOpenCtx}>
           <div
             className="sjv-wrapper-open"
             data-sticky={pinned ? '' : undefined}
             data-sticky-last={pinned && level === lastPinnedLevel ? '' : undefined}
             style={{
-              position: 'absolute',
-              top,
-              left: 0,
-              right: 0,
+              position: 'sticky',
+              top: entry.depth * ROW_HEIGHT,
               height: ROW_HEIGHT,
+              // Outer wrappers paint above inner ones so the inner sticky
+              // slides under the outer when its close pushes it up.
               zIndex: 100 - level,
             }}
           >
             {renderRow()}
           </div>
         </LineContext.Provider>
-      );
-    });
-
-    mainContent = (
-      <div className="sjv-spacer" style={{ height: spacerHeight, position: 'relative' }}>
-        {rows}
-        {stickyRows}
+        {bucket.map((it) => renderAbsRow(it, (it.idx - entry.lineIdx) * ROW_HEIGHT))}
+        {nested ? renderWrapper(level + 1) : null}
       </div>
     );
+  };
+
+  const spacerChildren: ReactNode[] = [];
+  for (const it of spacerBucket) {
+    spacerChildren.push(renderAbsRow(it, Math.round(it.idx * ROW_HEIGHT + translateY)));
   }
+  if (wrapperChain.length > 0) {
+    spacerChildren.push(renderWrapper(0));
+  }
+
+  const mainContent: ReactNode = (
+    <div className="sjv-spacer" style={{ height: spacerHeight, position: 'relative' }}>
+      {spacerChildren}
+    </div>
+  );
 
   const mergedStyle: CSSProperties = {
     position: 'relative',

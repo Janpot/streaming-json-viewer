@@ -26,11 +26,6 @@
   position: relative;
 }
 
-.sjv-wrapper {
-  position: relative;
-}
-
 .sjv-wrapper-open {
-  position: sticky;
   z-index: 2;
 }
