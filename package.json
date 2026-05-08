@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "build": "pnpm -F streaming-json-viewer build",
+    "build": "pnpm -r build",
     "dev": "pnpm -r --parallel --stream dev",
     "lint": "eslint .",
     "format": "prettier --write .",
