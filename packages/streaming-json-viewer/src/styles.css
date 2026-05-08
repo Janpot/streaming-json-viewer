@@ -8,11 +8,6 @@
  * etc.) and the [data-sticky] attribute from your own stylesheet.
  */
 
-.sjv-viewport {
-  position: relative;
-  box-sizing: border-box;
-}
-
 .sjv-scroll {
   height: 100%;
   width: 100%;
@@ -20,8 +15,4 @@
   overscroll-behavior: none;
   scrollbar-gutter: stable;
   contain: strict;
-}
-
-.sjv-spacer {
-  position: relative;
 }

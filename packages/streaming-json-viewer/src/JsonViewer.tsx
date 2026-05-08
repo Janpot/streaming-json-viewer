@@ -575,7 +575,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   }
 
   const mainContent: ReactNode = (
-    <div className="sjv-spacer" style={{ height: spacerHeight, position: 'relative' }}>
+    <div style={{ height: spacerHeight, position: 'relative' }}>
       {spacerChildren}
     </div>
   );
@@ -583,6 +583,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   const mergedStyle: CSSProperties = {
     position: 'relative',
     overflow: 'hidden',
+    boxSizing: 'border-box',
     ...style,
   };
 
