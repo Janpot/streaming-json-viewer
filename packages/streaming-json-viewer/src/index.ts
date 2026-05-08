@@ -1,4 +1,4 @@
-export { JsonViewer } from './JsonViewer';
+export * as JsonViewer from './JsonViewer';
 export type {
   RootProps,
   StatProps,
@@ -7,7 +7,7 @@ export type {
   BodyProps,
   GroupProps,
 } from './JsonViewer';
-export { useLine } from './Row';
-export type { LineContextValue, LineProps, TriggerProps, LineContentProps } from './Row';
+export { useLine } from './Line';
+export type { LineContextValue, LineProps, TriggerProps, LineContentProps } from './Line';
 export type { Status, TreeNode } from './types';
 export type { StreamValue } from './ingest';

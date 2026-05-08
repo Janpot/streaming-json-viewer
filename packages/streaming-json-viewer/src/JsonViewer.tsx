@@ -18,7 +18,7 @@ import { createTokenizer } from './tokenizer';
 import { createParser } from './parser';
 import { createTreeBuilder, getLineAt, nextLine } from './tree';
 import { ingest, type StreamValue } from './ingest';
-import { Line, LineContent, LineContext, ROW_HEIGHT, Trigger, type LineContextValue } from './Row';
+import { LineContext, ROW_HEIGHT, type LineContextValue } from './Line';
 import type { ContainerNode, LineCursor, Status } from './types';
 
 const OVERSCAN = 12;
@@ -29,7 +29,7 @@ const OVERSCAN = 12;
 const SAFE_MAX_SPACER_HEIGHT = 8_000_000;
 
 export interface RootProps {
-  value: StreamValue;
+  value: StreamValue | null;
   /** 'json' (default) parses a single top-level value. 'jsonl' / 'ndjson'
    * parses a stream of newline-separated values, wrapped in an implicit
    * top-level array. */
@@ -57,6 +57,14 @@ function Root({ value, format = 'json', chunkSize = 65536, onStatusChange, child
       store.setStatus(s, err);
       onStatusChangeRef.current?.(s, err ?? undefined);
     };
+
+    if (value === null) {
+      setStatus('idle');
+      return () => {
+        abort.abort();
+      };
+    }
+
     setStatus('streaming');
 
     if (format === 'jsonl') {
@@ -587,16 +595,5 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   );
 });
 
-export const JsonViewer = {
-  Root,
-  Bytes,
-  NodeCount,
-  LineCount,
-  Status,
-  Viewport,
-  Body,
-  Group,
-  Line,
-  Trigger,
-  LineContent,
-};
+export { Root, Bytes, NodeCount, LineCount, Status, Viewport, Body, Group };
+export { Line, Trigger, LineContent } from './Line';

@@ -202,8 +202,7 @@ body {
  * own decoration of the documented class hooks and [data-sticky] attribute.
  * ------------------------------------------------------------------------- */
 
-.sjv-viewport,
-.sjv-meta {
+.viewer-shell {
   --sjv-row-height: 22px;
   --sjv-font-mono: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, Consolas, monospace;
   --sjv-font-size: 12.5px;
@@ -303,9 +302,10 @@ body {
   }
 }
 
-.sjv-viewport {
+.json-viewer {
   background: var(--sjv-bg-subtle);
   color: var(--sjv-fg);
+  flex: 1;
 }
 .sjv-scroll {
   font-family: var(--sjv-font-mono);

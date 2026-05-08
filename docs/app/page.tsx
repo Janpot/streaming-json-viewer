@@ -171,47 +171,45 @@ export default function Page() {
           )}
         </div>
 
-        {active && (
-          <div className="viewer-shell" key={active.key}>
-            <JsonViewer.Root value={active.value} format={active.format}>
-              <div className="meta">
-                <div className="meta-group">
-                  <span className="stat">
-                    <span className="stat-label">bytes</span>
-                    <JsonViewer.Bytes className="stat-value" />
-                  </span>
-                  <span className="stat">
-                    <span className="stat-label">nodes</span>
-                    <JsonViewer.NodeCount className="stat-value" />
-                  </span>
-                  <span className="stat">
-                    <span className="stat-label">lines</span>
-                    <JsonViewer.LineCount className="stat-value" />
-                  </span>
-                </div>
-                <div className="meta-group">
-                  <JsonViewer.Status className="status" />
-                </div>
+        <div className="viewer-shell">
+          <JsonViewer.Root value={active?.value ?? null} format={active?.format ?? 'json'}>
+            <div className="meta">
+              <div className="meta-group">
+                <span className="stat">
+                  <span className="stat-label">bytes</span>
+                  <JsonViewer.Bytes className="stat-value" />
+                </span>
+                <span className="stat">
+                  <span className="stat-label">nodes</span>
+                  <JsonViewer.NodeCount className="stat-value" />
+                </span>
+                <span className="stat">
+                  <span className="stat-label">lines</span>
+                  <JsonViewer.LineCount className="stat-value" />
+                </span>
               </div>
-              <JsonViewer.Viewport className="json-viewer" style={{ flex: 1 }}>
-                <JsonViewer.Body>
-                  {() => (
-                    <JsonViewer.Group className="group">
-                      {() => (
-                        <JsonViewer.Line className="line">
-                          <JsonViewer.Trigger className="trigger">
-                            <Chevron />
-                          </JsonViewer.Trigger>
-                          <JsonViewer.LineContent />
-                        </JsonViewer.Line>
-                      )}
-                    </JsonViewer.Group>
-                  )}
-                </JsonViewer.Body>
-              </JsonViewer.Viewport>
-            </JsonViewer.Root>
-          </div>
-        )}
+              <div className="meta-group">
+                <JsonViewer.Status className="status" />
+              </div>
+            </div>
+            <JsonViewer.Viewport className="json-viewer">
+              <JsonViewer.Body>
+                {() => (
+                  <JsonViewer.Group className="group">
+                    {() => (
+                      <JsonViewer.Line className="line">
+                        <JsonViewer.Trigger className="trigger">
+                          <Chevron />
+                        </JsonViewer.Trigger>
+                        <JsonViewer.LineContent />
+                      </JsonViewer.Line>
+                    )}
+                  </JsonViewer.Group>
+                )}
+              </JsonViewer.Body>
+            </JsonViewer.Viewport>
+          </JsonViewer.Root>
+        </div>
 
         <div className="arch">
           <div className="arch-title">{'// virtualization model'}</div>
