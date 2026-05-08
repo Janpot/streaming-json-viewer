@@ -10,3 +10,9 @@ export function useStore(): JsonViewerStore {
   }
   return store;
 }
+
+export const InstanceIdContext = createContext<string>('jv');
+
+export function useInstanceId(): string {
+  return useContext(InstanceIdContext);
+}

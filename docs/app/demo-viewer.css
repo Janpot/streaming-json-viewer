@@ -137,6 +137,19 @@
 .viewer-shell .line[data-clickable]:hover {
   background: var(--bg-hover);
 }
+.viewer-shell .line[data-focused] {
+  background: var(--bg-hover);
+}
+.viewer-shell .line:focus {
+  outline: none;
+}
+.viewer-shell .line:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.json-viewer:focus {
+  outline: none;
+}
 .viewer-shell .trigger {
   color: var(--fg-faint);
   transition: transform 80ms;

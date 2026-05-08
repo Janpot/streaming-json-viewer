@@ -4,19 +4,31 @@ import {
   isValidElement,
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
   type CSSProperties,
   type HTMLAttributes,
+  type KeyboardEventHandler,
   type ReactNode,
 } from 'react';
-import { JsonViewerContext, useStore } from './context';
+import { InstanceIdContext, JsonViewerContext, useInstanceId, useStore } from './context';
 import { JsonViewerStore } from './store';
 import { createTokenizer } from './tokenizer';
 import { createParser } from './parser';
-import { createTreeBuilder, getLineAt, nextLine } from './tree';
+import {
+  createTreeBuilder,
+  firstOpenLine,
+  getLineAt,
+  getNodeLineIdx,
+  getRenderDepth,
+  lastOpenLine,
+  nextLine,
+  nextOpenLine,
+  prevOpenLine,
+} from './tree';
 import { ingest, type StreamValue } from './ingest';
 import { LineContext, ROW_HEIGHT, type LineContextValue } from './Line';
 import type { ContainerNode, LineCursor } from './types';
@@ -38,6 +50,7 @@ function Root({ value, chunkSize = 65536, children }: RootProps) {
   const storeRef = useRef<JsonViewerStore | null>(null);
   if (!storeRef.current) storeRef.current = new JsonViewerStore();
   const store = storeRef.current;
+  const instanceId = useId();
 
   useEffect(() => {
     const abort = new AbortController();
@@ -109,7 +122,11 @@ function Root({ value, chunkSize = 65536, children }: RootProps) {
     };
   }, [value, chunkSize, store]);
 
-  return <JsonViewerContext.Provider value={store}>{children}</JsonViewerContext.Provider>;
+  return (
+    <JsonViewerContext.Provider value={store}>
+      <InstanceIdContext.Provider value={instanceId}>{children}</InstanceIdContext.Provider>
+    </JsonViewerContext.Provider>
+  );
 }
 
 function useStoreVersion(store: JsonViewerStore): number {
@@ -210,7 +227,7 @@ interface VisibleEntry {
 export type ViewportProps = HTMLAttributes<HTMLDivElement> & { children?: ReactNode };
 
 const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
-  { className, style, children, onScroll: userOnScroll, ...rest },
+  { className, style, children, onScroll: userOnScroll, onKeyDown: userOnKeyDown, role, ...rest },
   forwardedRef,
 ) {
   const bodyRenderer = findBodyRenderer(children);
@@ -228,7 +245,9 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   const renderRow = rowRenderer as () => ReactNode;
   const store = useStore();
   useStoreVersion(store);
-  const { nodes, totalLines } = store;
+  const { nodes, totalLines, focusedId, status } = store;
+  const instanceId = useInstanceId();
+  const shouldFocusDomRef = useRef(false);
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -285,10 +304,129 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       if (viewportRef.current) viewportRef.current.scrollTop = nextScrollTop;
       setScrollTop(nextScrollTop);
       setLocalOffset(nextLocal);
+      // toggleCollapse may repair focus up to `id` when the focused row
+      // was a hidden descendant — make sure DOM focus follows.
+      shouldFocusDomRef.current = true;
       store.toggleCollapse(id);
     },
     [store, factor],
   );
+
+  // Scroll a line into the visible band if it's outside it. Used by keyboard
+  // navigation; same factor/local-offset arithmetic as handleStickyToggle.
+  const ensureLineVisible = useCallback(
+    (lineIdx: number) => {
+      const lineTop = lineIdx * ROW_HEIGHT;
+      const lineBottom = lineTop + ROW_HEIGHT;
+      const visibleTop = docScrollTop;
+      const visibleBottom = docScrollTop + containerHeight;
+      let targetDoc = -1;
+      if (lineTop < visibleTop) targetDoc = Math.max(0, lineTop);
+      else if (lineBottom > visibleBottom)
+        targetDoc = Math.max(0, lineBottom - containerHeight);
+      if (targetDoc < 0) return;
+      const nextScrollTop = factor === 1 ? targetDoc : Math.round(targetDoc / factor);
+      const nextLocal = factor === 1 ? 0 : targetDoc - nextScrollTop * factor;
+      programmaticScrollRef.current = true;
+      if (viewportRef.current) viewportRef.current.scrollTop = nextScrollTop;
+      setScrollTop(nextScrollTop);
+      setLocalOffset(nextLocal);
+    },
+    [docScrollTop, containerHeight, factor],
+  );
+
+  const moveFocus = useCallback(
+    (id: number) => {
+      const lineIdx = getNodeLineIdx(nodes, id);
+      if (lineIdx !== null) ensureLineVisible(lineIdx);
+      shouldFocusDomRef.current = true;
+      store.setFocused(id);
+    },
+    [nodes, ensureLineVisible, store],
+  );
+
+  const onKeyDown: KeyboardEventHandler<HTMLDivElement> = (e) => {
+    userOnKeyDown?.(e);
+    if (e.defaultPrevented) return;
+    if (nodes.length === 0) return;
+
+    const startCursor: LineCursor | null =
+      focusedId !== null && nodes[focusedId]
+        ? { id: focusedId, depth: getRenderDepth(nodes, focusedId), kind: 'open' }
+        : firstOpenLine(nodes);
+    if (!startCursor) return;
+    const node = nodes[startCursor.id]!;
+    const c =
+      node.type === 'object' || node.type === 'array' ? (node as ContainerNode) : null;
+
+    switch (e.key) {
+      case 'ArrowDown': {
+        e.preventDefault();
+        const next = focusedId === null ? startCursor : nextOpenLine(nodes, startCursor);
+        if (next) moveFocus(next.id);
+        return;
+      }
+      case 'ArrowUp': {
+        e.preventDefault();
+        const prev = focusedId === null ? startCursor : prevOpenLine(nodes, startCursor);
+        if (prev) moveFocus(prev.id);
+        return;
+      }
+      case 'ArrowRight': {
+        e.preventDefault();
+        if (focusedId === null) {
+          moveFocus(startCursor.id);
+          return;
+        }
+        if (!c || c.childIds.length === 0) return;
+        if (c.collapsed) store.toggleCollapse(startCursor.id);
+        else moveFocus(c.childIds[0]!);
+        return;
+      }
+      case 'ArrowLeft': {
+        e.preventDefault();
+        if (focusedId === null) {
+          moveFocus(startCursor.id);
+          return;
+        }
+        if (c && !c.collapsed && c.childIds.length > 0) {
+          store.toggleCollapse(startCursor.id);
+          return;
+        }
+        let pId = node.parentId;
+        while (pId !== -1) {
+          const p = nodes[pId]!;
+          const isContainer = p.type === 'object' || p.type === 'array';
+          if (!isContainer || !(p as ContainerNode).transparent) break;
+          pId = p.parentId;
+        }
+        if (pId !== -1) moveFocus(pId);
+        return;
+      }
+      case 'Home': {
+        e.preventDefault();
+        const first = firstOpenLine(nodes);
+        if (first) moveFocus(first.id);
+        return;
+      }
+      case 'End': {
+        e.preventDefault();
+        const last = lastOpenLine(nodes);
+        if (last) moveFocus(last.id);
+        return;
+      }
+      case 'Enter':
+      case ' ': {
+        e.preventDefault();
+        if (focusedId === null) {
+          moveFocus(startCursor.id);
+          return;
+        }
+        if (c && c.childIds.length > 0) store.toggleCollapse(startCursor.id);
+        return;
+      }
+    }
+  };
 
   const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const next = e.currentTarget.scrollTop;
@@ -395,6 +533,32 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     }
   }
 
+  // Determine which row should carry tabIndex=0. Roving tabindex pattern: only
+  // one tab stop in the tree. If `focusedId` points to a rendered open row,
+  // that row owns the tab stop. Otherwise (focus offscreen, focus null, or
+  // focus on a collapsed branch) fall back to the first rendered open row so
+  // Tab can still enter the tree.
+  const renderedOpenIds = new Set<number>();
+  for (const w of wrapperChain) renderedOpenIds.add(w.id);
+  for (const it of visibleLines) {
+    if (it.line.kind === 'open' && !wrapperIds.has(it.line.id)) {
+      renderedOpenIds.add(it.line.id);
+    }
+  }
+  let effectiveFocusedId: number | null = null;
+  if (focusedId !== null && renderedOpenIds.has(focusedId)) {
+    effectiveFocusedId = focusedId;
+  } else if (wrapperChain.length > 0) {
+    effectiveFocusedId = wrapperChain[0]!.id;
+  } else {
+    for (const it of visibleLines) {
+      if (it.line.kind === 'open' && !wrapperIds.has(it.line.id)) {
+        effectiveFocusedId = it.line.id;
+        break;
+      }
+    }
+  }
+
   type CtxExtras = Pick<
     LineContextValue,
     'isSticky' | 'isStickyLast' | 'position' | 'top' | 'height' | 'zIndex' | 'toggle'
@@ -403,6 +567,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     const node = nodes[entry.line.id];
     if (!node) return null;
     const parent = node.parentId >= 0 ? nodes[node.parentId]! : null;
+    const isOpen = entry.line.kind === 'open';
     return {
       node,
       parent,
@@ -410,6 +575,9 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       depth: entry.line.depth,
       lineIdx: entry.idx,
       ...extras,
+      isFocused: isOpen && entry.line.id === effectiveFocusedId,
+      focus: () => moveFocus(node.id),
+      lineId: `${instanceId}-line-${node.id}`,
     };
   };
 
@@ -508,6 +676,9 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       toggle: pinned
         ? () => handleStickyToggle(entry.id, entry.lineIdx, level)
         : () => store.toggleCollapse(entry.id),
+      isFocused: entry.id === effectiveFocusedId,
+      focus: () => moveFocus(entry.id),
+      lineId: `${instanceId}-line-${entry.id}`,
     };
 
     return (
@@ -541,6 +712,17 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     spacerChildren.push(renderWrapper(0));
   }
 
+  // After a render where focusedId was changed by user interaction (click,
+  // keyboard, onFocus), move DOM focus onto the matching row. Guarded by a
+  // ref so background notifies (streaming) don't steal focus.
+  useLayoutEffect(() => {
+    if (focusedId === null) return;
+    if (!shouldFocusDomRef.current) return;
+    shouldFocusDomRef.current = false;
+    const el = document.getElementById(`${instanceId}-line-${focusedId}`);
+    if (el && el !== document.activeElement) el.focus({ preventScroll: true });
+  }, [focusedId, instanceId]);
+
   const mainContent: ReactNode = (
     <div style={{ height: spacerHeight, position: 'relative' }}>
       {spacerChildren}
@@ -562,7 +744,10 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       ref={setRefs}
       className={className}
       style={mergedStyle}
+      role={role ?? 'tree'}
+      aria-busy={status === 'streaming' ? true : undefined}
       onScroll={onScroll}
+      onKeyDown={onKeyDown}
       {...rest}
     >
       {mainContent}

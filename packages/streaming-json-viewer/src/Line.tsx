@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   type CSSProperties,
+  type FocusEventHandler,
   type HTMLAttributes,
   type ReactNode,
 } from 'react';
@@ -24,6 +25,9 @@ export interface LineContextValue {
   height: number;
   zIndex?: number;
   toggle: () => void;
+  isFocused: boolean;
+  focus: () => void;
+  lineId: string;
 }
 
 export const LineContext = createContext<LineContextValue | null>(null);
@@ -113,7 +117,11 @@ export function LineContent(props: LineContentProps) {
   let content: ReactNode;
   if (kind === 'close') {
     const close = node.type === 'object' ? '}' : ']';
-    content = <span data-token="bracket">{close}</span>;
+    content = (
+      <span data-token="bracket" aria-hidden="true">
+        {close}
+      </span>
+    );
   } else if (isContainer) {
     const c = node as ContainerNode;
     const open = node.type === 'object' ? '{' : '[';
@@ -125,16 +133,26 @@ export function LineContent(props: LineContentProps) {
         {showKey && (
           <>
             <span data-token="property">&quot;{node.key}&quot;</span>
-            <span data-token="colon">: </span>
+            <span data-token="colon" aria-hidden="true">
+              :{' '}
+            </span>
           </>
         )}
-        <span data-token="bracket">{open}</span>
+        <span data-token="bracket" aria-hidden="true">
+          {open}
+        </span>
         {empty ? (
-          <span data-token="bracket">{close}</span>
+          <span data-token="bracket" aria-hidden="true">
+            {close}
+          </span>
         ) : collapsed ? (
           <>
-            <span data-token="ellipsis">…</span>
-            <span data-token="bracket">{close}</span>
+            <span data-token="ellipsis" aria-hidden="true">
+              …
+            </span>
+            <span data-token="bracket" aria-hidden="true">
+              {close}
+            </span>
             <span data-token="count">
               {count} {label}
             </span>
@@ -153,7 +171,9 @@ export function LineContent(props: LineContentProps) {
         {showKey && (
           <>
             <span data-token="property">&quot;{node.key}&quot;</span>
-            <span data-token="colon">: </span>
+            <span data-token="colon" aria-hidden="true">
+              :{' '}
+            </span>
           </>
         )}
         <span data-token={token}>{text}</span>
@@ -172,14 +192,36 @@ export type LineProps = HTMLAttributes<HTMLDivElement> & { children: ReactNode }
 /**
  * Row wrapper. Owns row positioning (absolute or sticky), indent padding, and
  * row-level state via data attributes (`data-kind="open|close"`, `data-type`,
- * `data-collapsed`, `data-empty`, `data-clickable`, `data-sticky`,
- * `data-sticky-last`). Children are required: compose `<Trigger>` and
- * `<LineContent>` (or a custom equivalent) inside.
+ * `data-collapsed`, `data-empty`, `data-clickable`, `data-focused`,
+ * `data-sticky`, `data-sticky-last`). Children are required: compose
+ * `<Trigger>` and `<LineContent>` (or a custom equivalent) inside.
+ *
+ * For accessibility, open rows render as `role="treeitem"` with
+ * `aria-level`/`aria-setsize`/`aria-posinset` and (for containers)
+ * `aria-expanded`. Close rows are `aria-hidden` and excluded from the AT tree
+ * — the container's open row is the single treeitem for the node. Roving
+ * tabindex (`tabIndex=0` on the focused row, `-1` elsewhere) keeps Tab
+ * escaping the viewer.
  */
-export function Line({ className, style, onClick, children, ...rest }: LineProps) {
+export function Line({ className, style, onClick, onFocus, children, ...rest }: LineProps) {
   const ctx = useLine();
-  const { node, kind, depth, toggle, position, top, height, zIndex, isSticky, isStickyLast } = ctx;
-  const { empty, collapsed, isToggleable } = getLineShape(ctx);
+  const {
+    node,
+    parent,
+    kind,
+    depth,
+    toggle,
+    position,
+    top,
+    height,
+    zIndex,
+    isSticky,
+    isStickyLast,
+    isFocused,
+    focus,
+    lineId,
+  } = ctx;
+  const { empty, collapsed, isContainer, isToggleable } = getLineShape(ctx);
   const mergedStyle: CSSProperties = {
     paddingLeft: depth * INDENT + 8,
     ...style,
@@ -191,8 +233,28 @@ export function Line({ className, style, onClick, children, ...rest }: LineProps
     zIndex,
   };
 
+  const isClose = kind === 'close';
+  const ariaProps: HTMLAttributes<HTMLDivElement> = isClose
+    ? { role: 'presentation', 'aria-hidden': true }
+    : {
+        role: 'treeitem',
+        'aria-level': depth + 1,
+        'aria-setsize':
+          parent && (parent.type === 'object' || parent.type === 'array')
+            ? (parent as ContainerNode).childIds.length
+            : 1,
+        'aria-posinset': node.parentId === -1 ? 1 : node.siblingIdx + 1,
+        ...(isContainer && !empty ? { 'aria-expanded': !collapsed } : null),
+      };
+
+  const handleFocus: FocusEventHandler<HTMLDivElement> = (e) => {
+    onFocus?.(e);
+    if (!isClose) focus();
+  };
+
   return (
     <div
+      id={isClose ? undefined : lineId}
       className={className}
       style={mergedStyle}
       data-kind={kind}
@@ -200,12 +262,19 @@ export function Line({ className, style, onClick, children, ...rest }: LineProps
       data-collapsed={collapsed ? '' : undefined}
       data-empty={empty ? '' : undefined}
       data-clickable={isToggleable ? '' : undefined}
+      data-focused={!isClose && isFocused ? '' : undefined}
       data-sticky={isSticky ? '' : undefined}
       data-sticky-last={isStickyLast ? '' : undefined}
+      tabIndex={isClose ? -1 : isFocused ? 0 : -1}
+      {...ariaProps}
       onClick={(e) => {
         onClick?.(e);
-        if (!e.defaultPrevented && isToggleable) toggle();
+        if (!e.defaultPrevented) {
+          if (!isClose) focus();
+          if (isToggleable) toggle();
+        }
       }}
+      onFocus={handleFocus}
       {...rest}
     >
       {children}
