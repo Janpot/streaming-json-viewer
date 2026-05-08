@@ -176,15 +176,32 @@ export interface BodyProps {
 }
 
 /**
- * Slot/marker. The render-prop runs once per visible row + once per sticky row
- * inside a LineContext provider. Use `useLine()` to read the current row's
- * data, and compose `<JsonViewer.Line>` with `<JsonViewer.Trigger>` and
- * `<JsonViewer.LineContent>` (or your own parts) inside.
+ * Slot/marker. The render-prop must return a `<JsonViewer.Group>` whose own
+ * render-prop returns the row content. The library extracts the Group's props
+ * (used to style the chain wrapper) and its render-prop (called once per
+ * visible row + once per sticky pinned row, inside a LineContext provider).
  */
 function Body(_props: BodyProps): null {
   return null;
 }
 Body.displayName = 'JsonViewer.Body';
+
+export type GroupProps = Omit<HTMLAttributes<HTMLDivElement>, 'children'> & {
+  children: (() => ReactNode) | ReactNode;
+};
+
+/**
+ * Slot/marker for the chain wrapper. Place inside `<JsonViewer.Body>`'s
+ * render-prop. Its props (`className`, `style`, `data-*`, ...) are applied to
+ * each chain-wrapper `<div>` the library renders. Its `children` render-prop
+ * is called once per visible row to produce the row content. If rendered
+ * directly (dev / fallback), it returns `children()` (or `children` as JSX)
+ * with no DOM of its own.
+ */
+function Group({ children }: GroupProps): ReactNode {
+  return typeof children === 'function' ? (children as () => ReactNode)() : children;
+}
+Group.displayName = 'JsonViewer.Group';
 
 function findBodyRenderer(children: ReactNode): (() => ReactNode) | null {
   let found: (() => ReactNode) | null = null;
@@ -221,10 +238,19 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   { className, style, children, ...rest },
   forwardedRef,
 ) {
-  const renderRow = findBodyRenderer(children);
-  if (!renderRow) {
+  const bodyRenderer = findBodyRenderer(children);
+  if (!bodyRenderer) {
     throw new Error('JsonViewer.Viewport requires a JsonViewer.Body child');
   }
+  const groupElement = bodyRenderer();
+  if (!isValidElement(groupElement) || groupElement.type !== Group) {
+    throw new Error('JsonViewer.Body render-prop must return a JsonViewer.Group element');
+  }
+  const { children: rowRenderer, ...groupProps } = groupElement.props as GroupProps;
+  if (typeof rowRenderer !== 'function') {
+    throw new Error('JsonViewer.Group requires a render-prop child');
+  }
+  const renderRow = rowRenderer as () => ReactNode;
   const store = useStore();
   useStoreVersion(store);
   const { nodes, totalLines } = store;
@@ -394,11 +420,11 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     }
   }
 
-  const buildLineCtx = (
-    entry: VisibleEntry,
-    isSticky: boolean,
-    toggle: () => void,
-  ): LineContextValue | null => {
+  type CtxExtras = Pick<
+    LineContextValue,
+    'isSticky' | 'isStickyLast' | 'position' | 'top' | 'height' | 'zIndex' | 'toggle'
+  >;
+  const buildLineCtx = (entry: VisibleEntry, extras: CtxExtras): LineContextValue | null => {
     const node = nodes[entry.line.id];
     if (!node) return null;
     const parent = node.parentId >= 0 ? nodes[node.parentId]! : null;
@@ -408,8 +434,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       kind: entry.line.kind,
       depth: entry.line.depth,
       lineIdx: entry.idx,
-      isSticky,
-      toggle,
+      ...extras,
     };
   };
 
@@ -442,16 +467,18 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   const renderAbsRow = (entry: VisibleEntry, top: number): ReactNode => {
     const node = nodes[entry.line.id];
     if (!node) return null;
-    const ctx = buildLineCtx(entry, false, () => store.toggleCollapse(node.id));
+    const ctx = buildLineCtx(entry, {
+      isSticky: false,
+      isStickyLast: false,
+      position: 'absolute',
+      top,
+      height: ROW_HEIGHT,
+      toggle: () => store.toggleCollapse(node.id),
+    });
     if (!ctx) return null;
     return (
       <LineContext.Provider key={`${entry.line.id}-${entry.line.kind}-${entry.idx}`} value={ctx}>
-        <div
-          className="sjv-row-wrap"
-          style={{ position: 'absolute', top, left: 0, right: 0, height: ROW_HEIGHT }}
-        >
-          {renderRow()}
-        </div>
+        {renderRow()}
       </LineContext.Provider>
     );
   };
@@ -489,6 +516,8 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     // the wrapper bottom approaches, sticky gets pushed up automatically.
     const pinned = entry.lineIdx * ROW_HEIGHT < docScrollTop + entry.depth * ROW_HEIGHT;
 
+    // Outer wrappers paint above inner ones so the inner sticky slides under
+    // the outer when its close pushes it up.
     const stickyOpenCtx: LineContextValue = {
       node,
       parent,
@@ -496,6 +525,11 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       depth: entry.depth,
       lineIdx: entry.lineIdx,
       isSticky: pinned,
+      isStickyLast: pinned && level === lastPinnedLevel,
+      position: 'sticky',
+      top: entry.depth * ROW_HEIGHT,
+      height: ROW_HEIGHT,
+      zIndex: 100 - level,
       toggle: pinned
         ? () => handleStickyToggle(entry.id, entry.lineIdx, level)
         : () => store.toggleCollapse(entry.id),
@@ -503,9 +537,11 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
 
     return (
       <div
+        {...groupProps}
         key={`w-${entry.id}`}
-        className="sjv-wrapper"
+        data-depth={level}
         style={{
+          ...(groupProps.style ?? {}),
           position: 'absolute',
           top: wrapperTop,
           left: 0,
@@ -513,23 +549,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
           height: wrapperHeight,
         }}
       >
-        <LineContext.Provider value={stickyOpenCtx}>
-          <div
-            className="sjv-wrapper-open"
-            data-sticky={pinned ? '' : undefined}
-            data-sticky-last={pinned && level === lastPinnedLevel ? '' : undefined}
-            style={{
-              position: 'sticky',
-              top: entry.depth * ROW_HEIGHT,
-              height: ROW_HEIGHT,
-              // Outer wrappers paint above inner ones so the inner sticky
-              // slides under the outer when its close pushes it up.
-              zIndex: 100 - level,
-            }}
-          >
-            {renderRow()}
-          </div>
-        </LineContext.Provider>
+        <LineContext.Provider value={stickyOpenCtx}>{renderRow()}</LineContext.Provider>
         {bucket.map((it) =>
           renderAbsRow(it, Math.round(it.idx * ROW_HEIGHT + translateY - topAbs)),
         )}
@@ -575,6 +595,7 @@ export const JsonViewer = {
   Status,
   Viewport,
   Body,
+  Group,
   Line,
   Trigger,
   LineContent,

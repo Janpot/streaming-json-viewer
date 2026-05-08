@@ -18,6 +18,11 @@ export interface LineContextValue {
   depth: number;
   lineIdx: number;
   isSticky: boolean;
+  isStickyLast: boolean;
+  position: 'absolute' | 'sticky';
+  top: number;
+  height: number;
+  zIndex?: number;
   toggle: () => void;
 }
 
@@ -165,16 +170,26 @@ export function LineContent(props: LineContentProps) {
 export type LineProps = HTMLAttributes<HTMLDivElement> & { children: ReactNode };
 
 /**
- * Row wrapper. Sets indent padding and exposes row state via data attributes
- * (`data-kind="open|close"`, `data-type`, `data-collapsed`, `data-empty`,
- * `data-clickable`). Children are required: compose `<Trigger>` and
+ * Row wrapper. Owns row positioning (absolute or sticky), indent padding, and
+ * row-level state via data attributes (`data-kind="open|close"`, `data-type`,
+ * `data-collapsed`, `data-empty`, `data-clickable`, `data-sticky`,
+ * `data-sticky-last`). Children are required: compose `<Trigger>` and
  * `<LineContent>` (or a custom equivalent) inside.
  */
 export function Line({ className, style, onClick, children, ...rest }: LineProps) {
   const ctx = useLine();
-  const { node, kind, depth, toggle } = ctx;
+  const { node, kind, depth, toggle, position, top, height, zIndex, isSticky, isStickyLast } = ctx;
   const { empty, collapsed, isToggleable } = getLineShape(ctx);
-  const mergedStyle: CSSProperties = { paddingLeft: depth * INDENT + 8, ...style };
+  const mergedStyle: CSSProperties = {
+    paddingLeft: depth * INDENT + 8,
+    ...style,
+    position,
+    top,
+    left: position === 'absolute' ? 0 : undefined,
+    right: position === 'absolute' ? 0 : undefined,
+    height,
+    zIndex,
+  };
 
   return (
     <div
@@ -185,6 +200,8 @@ export function Line({ className, style, onClick, children, ...rest }: LineProps
       data-collapsed={collapsed ? '' : undefined}
       data-empty={empty ? '' : undefined}
       data-clickable={isToggleable ? '' : undefined}
+      data-sticky={isSticky ? '' : undefined}
+      data-sticky-last={isStickyLast ? '' : undefined}
       onClick={(e) => {
         onClick?.(e);
         if (!e.defaultPrevented && isToggleable) toggle();

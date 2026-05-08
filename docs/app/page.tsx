@@ -196,12 +196,16 @@ export default function Page() {
               <JsonViewer.Viewport className="json-viewer" style={{ flex: 1 }}>
                 <JsonViewer.Body>
                   {() => (
-                    <JsonViewer.Line className="row">
-                      <JsonViewer.Trigger className="trigger">
-                        <Chevron />
-                      </JsonViewer.Trigger>
-                      <JsonViewer.LineContent />
-                    </JsonViewer.Line>
+                    <JsonViewer.Group className="group">
+                      {() => (
+                        <JsonViewer.Line className="line">
+                          <JsonViewer.Trigger className="trigger">
+                            <Chevron />
+                          </JsonViewer.Trigger>
+                          <JsonViewer.LineContent />
+                        </JsonViewer.Line>
+                      )}
+                    </JsonViewer.Group>
                   )}
                 </JsonViewer.Body>
               </JsonViewer.Viewport>

@@ -14,12 +14,16 @@ import 'streaming-json-viewer/styles.css';
   <JsonViewer.Viewport style={{ flex: 1 }}>
     <JsonViewer.Body>
       {() => (
-        <JsonViewer.Line>
-          <JsonViewer.Trigger>
-            <MyChevron />
-          </JsonViewer.Trigger>
-          <JsonViewer.LineContent />
-        </JsonViewer.Line>
+        <JsonViewer.Group className="my-group">
+          {() => (
+            <JsonViewer.Line className="my-line">
+              <JsonViewer.Trigger>
+                <MyChevron />
+              </JsonViewer.Trigger>
+              <JsonViewer.LineContent />
+            </JsonViewer.Line>
+          )}
+        </JsonViewer.Group>
       )}
     </JsonViewer.Body>
   </JsonViewer.Viewport>
@@ -52,34 +56,44 @@ Renders the virtualized scroll surface and sticky ancestor headers. Forwards HTM
 
 ### `<JsonViewer.Body>`
 
-Slot for the per-row renderer. The render-prop runs once per visible row and once per sticky ancestor row, inside a `LineContext` provider. Required:
+Slot for the row renderer. Required as a child of `<Viewport>`. Its render-prop must return a `<JsonViewer.Group>`, whose own render-prop returns the row content. The library extracts the Group's static props (used to style the chain wrapper — see below) and calls Group's render-prop once per visible row and once per sticky pinned row, inside a `LineContext` provider.
 
 ```tsx
 <JsonViewer.Body>
   {() => (
-    <JsonViewer.Line className="my-row">
-      <JsonViewer.Trigger>
-        <MyChevron />
-      </JsonViewer.Trigger>
-      <JsonViewer.LineContent />
-    </JsonViewer.Line>
+    <JsonViewer.Group className="my-group">
+      {() => (
+        <JsonViewer.Line className="my-line">
+          <JsonViewer.Trigger>
+            <MyChevron />
+          </JsonViewer.Trigger>
+          <JsonViewer.LineContent />
+        </JsonViewer.Line>
+      )}
+    </JsonViewer.Group>
   )}
 </JsonViewer.Body>
 ```
 
-Inside the render-prop, call `useLine()` to read the current row's node, depth, kind, and toggle.
+Inside the inner render-prop, call `useLine()` to read the current row's node, depth, kind, and toggle.
+
+### `<JsonViewer.Group>`
+
+Wrapper for a sticky-ancestor chain. Forwards HTML props (`className`, `style`, `data-*`, `...rest`) onto each chain-wrapper `<div>` the library renders, alongside library-controlled positioning (`position: absolute`, `top`, `left:0`, `right:0`, `height`) and `data-depth={level}` for the chain level. Its `children` is the per-row render-prop. If rendered directly outside the Body extraction path, it returns `children()` (or `children` as JSX) with no DOM of its own.
 
 ### `<JsonViewer.Line>`
 
-Row wrapper. Sets indent padding and exposes row state via data attributes for CSS:
+Row wrapper. Owns row positioning (the library applies `position`/`top`/`left`/`right`/`height`/`zIndex` inline), indent padding, and click-to-toggle. Exposes row state via data attributes for CSS:
 
-| Attribute        | Value                                                                |
-| ---------------- | -------------------------------------------------------------------- |
-| `data-kind`      | `"open"` or `"close"`                                                |
-| `data-type`      | `"object" \| "array" \| "string" \| "number" \| "boolean" \| "null"` |
-| `data-collapsed` | present when a container is collapsed                                |
-| `data-empty`     | present when a container has no children                             |
-| `data-clickable` | present when clicking the row toggles a container                    |
+| Attribute          | Value                                                                |
+| ------------------ | -------------------------------------------------------------------- |
+| `data-kind`        | `"open"` or `"close"`                                                |
+| `data-type`        | `"object" \| "array" \| "string" \| "number" \| "boolean" \| "null"` |
+| `data-collapsed`   | present when a container is collapsed                                |
+| `data-empty`       | present when a container has no children                             |
+| `data-clickable`   | present when clicking the row toggles a container                    |
+| `data-sticky`      | present when the row is the pinned open of a sticky chain            |
+| `data-sticky-last` | present when the row is the deepest pinned sticky open               |
 
 Click anywhere on the row toggles the container (when toggleable). Children are required — compose `<Trigger>` and `<LineContent>` (or your own equivalents) inside.
 
