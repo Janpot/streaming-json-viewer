@@ -1,9 +1,3 @@
-/* ---------------------------------------------------------------------------
- * streaming-json-viewer — visual theme (consumer-owned).
- * The library ships structural CSS only; everything below is the docs site's
- * own decoration of the documented class hooks and [data-sticky] attribute.
- * ------------------------------------------------------------------------- */
-
 .viewer-shell {
   --row-height: 22px;
   --font-mono: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, Consolas, monospace;
