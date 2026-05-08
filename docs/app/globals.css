@@ -92,7 +92,9 @@ body {
   font-weight: 500;
   border-radius: 4px;
   cursor: pointer;
-  transition: background 120ms, color 120ms;
+  transition:
+    background 120ms,
+    color 120ms;
 }
 .mode-btn:hover {
   color: var(--fg);
@@ -358,11 +360,12 @@ body {
 .row[data-clickable]:hover {
   background: var(--sjv-bg-hover);
 }
-.json-viewer [data-token='chevron'] {
-  display: inline-flex;
-  width: 14px;
+.trigger {
   color: var(--sjv-fg-faint);
   transition: transform 80ms;
+}
+.trigger[data-state='open'] {
+  transform: rotate(90deg);
 }
 .json-viewer [data-token='property'] {
   color: var(--sjv-key);

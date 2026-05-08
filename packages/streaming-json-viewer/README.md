@@ -8,11 +8,20 @@ import 'streaming-json-viewer/styles.css';
 
 <JsonViewer.Root value={jsonStringOrStream}>
   <div className="my-status-bar">
-    <JsonViewer.Bytes /> bytes · <JsonViewer.NodeCount /> nodes ·{' '}
-    <JsonViewer.LineCount /> lines · <JsonViewer.Status />
+    <JsonViewer.Bytes /> bytes · <JsonViewer.NodeCount /> nodes · <JsonViewer.LineCount /> lines ·{' '}
+    <JsonViewer.Status />
   </div>
   <JsonViewer.Viewport style={{ flex: 1 }}>
-    <JsonViewer.Body />
+    <JsonViewer.Body>
+      {() => (
+        <JsonViewer.Line>
+          <JsonViewer.Trigger>
+            <MyChevron />
+          </JsonViewer.Trigger>
+          <JsonViewer.LineContent />
+        </JsonViewer.Line>
+      )}
+    </JsonViewer.Body>
   </JsonViewer.Viewport>
 </JsonViewer.Root>;
 ```
@@ -21,11 +30,11 @@ import 'streaming-json-viewer/styles.css';
 
 ### `<JsonViewer.Root>`
 
-| Prop             | Type                                                        | Description                                          |
-| ---------------- | ----------------------------------------------------------- | ---------------------------------------------------- |
-| `value`          | `string \| ReadableStream<Uint8Array> \| ReadableStream<string>` | JSON source. Changing it restarts ingestion.         |
-| `chunkSize`      | `number = 65536`                                            | Chunk size for string ingestion.                     |
-| `onStatusChange` | `(s, err?) => void`                                         | Notified on `'idle' \| 'streaming' \| 'done' \| 'error'`. |
+| Prop             | Type                                                             | Description                                               |
+| ---------------- | ---------------------------------------------------------------- | --------------------------------------------------------- |
+| `value`          | `string \| ReadableStream<Uint8Array> \| ReadableStream<string>` | JSON source. Changing it restarts ingestion.              |
+| `chunkSize`      | `number = 65536`                                                 | Chunk size for string ingestion.                          |
+| `onStatusChange` | `(s, err?) => void`                                              | Notified on `'idle' \| 'streaming' \| 'done' \| 'error'`. |
 
 Renders no DOM element — sets up shared state for the parts.
 
@@ -43,15 +52,61 @@ Renders the virtualized scroll surface and sticky ancestor headers. Forwards HTM
 
 ### `<JsonViewer.Body>`
 
-Slot for the per-row renderer. With no children it renders the default `<JsonViewer.Line />` for each row. Pass a render-prop to customize:
+Slot for the per-row renderer. The render-prop runs once per visible row and once per sticky ancestor row, inside a `LineContext` provider. Required:
 
 ```tsx
 <JsonViewer.Body>
-  {() => <JsonViewer.Line className="my-row" />}
+  {() => (
+    <JsonViewer.Line className="my-row">
+      <JsonViewer.Trigger>
+        <MyChevron />
+      </JsonViewer.Trigger>
+      <JsonViewer.LineContent />
+    </JsonViewer.Line>
+  )}
 </JsonViewer.Body>
 ```
 
 Inside the render-prop, call `useLine()` to read the current row's node, depth, kind, and toggle.
+
+### `<JsonViewer.Line>`
+
+Row wrapper. Sets indent padding and exposes row state via data attributes for CSS:
+
+| Attribute        | Value                                                                |
+| ---------------- | -------------------------------------------------------------------- |
+| `data-kind`      | `"open"` or `"close"`                                                |
+| `data-type`      | `"object" \| "array" \| "string" \| "number" \| "boolean" \| "null"` |
+| `data-collapsed` | present when a container is collapsed                                |
+| `data-empty`     | present when a container has no children                             |
+| `data-clickable` | present when clicking the row toggles a container                    |
+
+Click anywhere on the row toggles the container (when toggleable). Children are required — compose `<Trigger>` and `<LineContent>` (or your own equivalents) inside.
+
+### `<JsonViewer.Trigger>`
+
+Toggle indicator. Renders `<span data-state="open|closed|none">{children}</span>`:
+
+- `data-state="open"` — container, expanded
+- `data-state="closed"` — container, collapsed
+- `data-state="none"` — close row, primitive, or empty container (rendered invisible to preserve the gutter)
+
+Children are required — typically an SVG icon. Appearance (color, rotation, transition) is userland: attach a `className` and style off `[data-state='...']`:
+
+```css
+.my-trigger {
+  transition: transform 80ms;
+}
+.my-trigger[data-state='open'] {
+  transform: rotate(90deg);
+}
+```
+
+The library only sets the structural styles needed to preserve the indent gutter (fixed width + hide when `data-state='none'`). Not interactive on its own — clicks bubble to `<Line>` so the whole row remains clickable.
+
+### `<JsonViewer.LineContent>`
+
+Renders the tokenized content of a row inside `<span data-token="content">`. Emits per-token spans (`data-token="property" | "colon" | "bracket" | "string" | "number" | "boolean" | "null" | "ellipsis" | "count"`). Style each via the corresponding selector.
 
 ## Theming
 

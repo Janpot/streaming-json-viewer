@@ -1,8 +1,15 @@
-import { createContext, useContext, type CSSProperties, type HTMLAttributes } from 'react';
+import {
+  createContext,
+  useContext,
+  type CSSProperties,
+  type HTMLAttributes,
+  type ReactNode,
+} from 'react';
 import type { ContainerNode, LineCursor, PrimitiveNode, TreeNode } from './types';
 
 export const ROW_HEIGHT = 22;
 export const INDENT = 16;
+const TRIGGER_WIDTH = 14;
 
 export interface LineContextValue {
   node: TreeNode;
@@ -24,31 +31,47 @@ export function useLine(): LineContextValue {
   return ctx;
 }
 
-interface ChevronProps {
-  open: boolean;
-  hidden: boolean;
+interface LineShape {
+  isContainer: boolean;
+  empty: boolean;
+  collapsed: boolean;
+  isToggleable: boolean;
 }
 
-function Chevron({ open, hidden }: ChevronProps) {
-  const style: CSSProperties = {
-    visibility: hidden ? 'hidden' : 'visible',
-    transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
+function getLineShape({ node, kind }: LineContextValue): LineShape {
+  const isContainer = node.type === 'object' || node.type === 'array';
+  const c = isContainer ? (node as ContainerNode) : null;
+  const empty = c ? c.childIds.length === 0 : false;
+  const collapsed = c ? c.collapsed : false;
+  const isToggleable = isContainer && !empty && kind !== 'close';
+  return { isContainer, empty, collapsed, isToggleable };
+}
+
+export type TriggerProps = HTMLAttributes<HTMLSpanElement> & { children: ReactNode };
+
+/**
+ * Toggle indicator for a row. Carries `data-state="open" | "closed" | "none"`
+ * for CSS targeting (style rotation, color, etc. via the data attribute).
+ * Children (the icon) are required — typically an SVG chevron. Not itself
+ * interactive: click is handled by the surrounding `<Line>` so the whole row
+ * remains clickable. The library only sets the structural styles needed to
+ * preserve the gutter (fixed width + hide-when-`none`) — appearance is fully
+ * userland.
+ */
+export function Trigger({ children, style, ...rest }: TriggerProps) {
+  const ctx = useLine();
+  const { isToggleable, collapsed } = getLineShape(ctx);
+  const state = !isToggleable ? 'none' : collapsed ? 'closed' : 'open';
+  const mergedStyle: CSSProperties = {
+    width: TRIGGER_WIDTH,
+    flex: 'none',
+    display: 'inline-flex',
+    visibility: state === 'none' ? 'hidden' : 'visible',
+    ...style,
   };
   return (
-    <span data-token="chevron" style={style}>
-      <svg
-        width="11"
-        height="11"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        <polyline points="9 18 15 12 9 6" />
-      </svg>
+    <span data-state={state} style={mergedStyle} {...rest}>
+      {children}
     </span>
   );
 }
@@ -64,43 +87,36 @@ function formatPrimitive(node: PrimitiveNode): { token: string; text: string } {
   return { token: 'null', text: 'null' };
 }
 
-export type LineProps = HTMLAttributes<HTMLDivElement>;
+function countLabel(node: ContainerNode, count: number): string {
+  if (node.type === 'array') return count === 1 ? 'item' : 'items';
+  return count === 1 ? 'key' : 'keys';
+}
 
-export function Line({ className, style, onClick, ...rest }: LineProps) {
-  const { node, parent, kind, depth, toggle } = useLine();
-  const isContainer = node.type === 'object' || node.type === 'array';
-  const indent = depth * INDENT;
-  const open = node.type === 'object' ? '{' : '[';
-  const close = node.type === 'object' ? '}' : ']';
+export type LineContentProps = Omit<HTMLAttributes<HTMLSpanElement>, 'children'>;
+
+/**
+ * Renders the tokenized content of a row inside a `<span data-token="content">`.
+ * Emits the same per-token spans as before (`data-token="property" | "colon" |
+ * "bracket" | "string" | "number" | "boolean" | "null" | "ellipsis" | "count"`).
+ */
+export function LineContent(props: LineContentProps) {
+  const ctx = useLine();
+  const { node, parent, kind } = ctx;
+  const { isContainer, empty, collapsed } = getLineShape(ctx);
   const showKey = kind !== 'close' && parent && parent.type === 'object' && node.key !== null;
 
+  let content: ReactNode;
   if (kind === 'close') {
-    const mergedStyle: CSSProperties = { paddingLeft: indent + 8 + 14, ...style };
-    return (
-      <div className={className} style={mergedStyle} onClick={onClick} {...rest}>
-        <span data-token="bracket">{close}</span>
-      </div>
-    );
-  }
-
-  if (isContainer) {
+    const close = node.type === 'object' ? '}' : ']';
+    content = <span data-token="bracket">{close}</span>;
+  } else if (isContainer) {
     const c = node as ContainerNode;
-    const empty = c.childIds.length === 0;
+    const open = node.type === 'object' ? '{' : '[';
+    const close = node.type === 'object' ? '}' : ']';
     const count = c.childIds.length;
-    const collapsed = c.collapsed;
-    const mergedStyle: CSSProperties = { paddingLeft: indent + 8, ...style };
-    return (
-      <div
-        className={className}
-        data-clickable={!empty ? '' : undefined}
-        style={mergedStyle}
-        onClick={(e) => {
-          onClick?.(e);
-          if (!e.defaultPrevented && !empty) toggle();
-        }}
-        {...rest}
-      >
-        <Chevron open={!collapsed} hidden={empty} />
+    const label = countLabel(c, count);
+    content = (
+      <>
         {showKey && (
           <>
             <span data-token="property">&quot;{node.key}&quot;</span>
@@ -115,43 +131,67 @@ export function Line({ className, style, onClick, ...rest }: LineProps) {
             <span data-token="ellipsis">…</span>
             <span data-token="bracket">{close}</span>
             <span data-token="count">
-              {count}{' '}
-              {node.type === 'array'
-                ? count === 1
-                  ? 'item'
-                  : 'items'
-                : count === 1
-                  ? 'key'
-                  : 'keys'}
+              {count} {label}
             </span>
           </>
         ) : (
           <span data-token="count">
-            {count}{' '}
-            {node.type === 'array'
-              ? count === 1
-                ? 'item'
-                : 'items'
-              : count === 1
-                ? 'key'
-                : 'keys'}
+            {count} {label}
           </span>
         )}
-      </div>
+      </>
+    );
+  } else {
+    const { token, text } = formatPrimitive(node as PrimitiveNode);
+    content = (
+      <>
+        {showKey && (
+          <>
+            <span data-token="property">&quot;{node.key}&quot;</span>
+            <span data-token="colon">: </span>
+          </>
+        )}
+        <span data-token={token}>{text}</span>
+      </>
     );
   }
-
-  const { token, text } = formatPrimitive(node as PrimitiveNode);
-  const mergedStyle: CSSProperties = { paddingLeft: indent + 8 + 14, ...style };
   return (
-    <div className={className} style={mergedStyle} onClick={onClick} {...rest}>
-      {showKey && (
-        <>
-          <span data-token="property">&quot;{node.key}&quot;</span>
-          <span data-token="colon">: </span>
-        </>
-      )}
-      <span data-token={token}>{text}</span>
+    <span data-token="content" {...props}>
+      {content}
+    </span>
+  );
+}
+
+export type LineProps = HTMLAttributes<HTMLDivElement> & { children: ReactNode };
+
+/**
+ * Row wrapper. Sets indent padding and exposes row state via data attributes
+ * (`data-kind="open|close"`, `data-type`, `data-collapsed`, `data-empty`,
+ * `data-clickable`). Children are required: compose `<Trigger>` and
+ * `<LineContent>` (or a custom equivalent) inside.
+ */
+export function Line({ className, style, onClick, children, ...rest }: LineProps) {
+  const ctx = useLine();
+  const { node, kind, depth, toggle } = ctx;
+  const { empty, collapsed, isToggleable } = getLineShape(ctx);
+  const mergedStyle: CSSProperties = { paddingLeft: depth * INDENT + 8, ...style };
+
+  return (
+    <div
+      className={className}
+      style={mergedStyle}
+      data-kind={kind}
+      data-type={node.type}
+      data-collapsed={collapsed ? '' : undefined}
+      data-empty={empty ? '' : undefined}
+      data-clickable={isToggleable ? '' : undefined}
+      onClick={(e) => {
+        onClick?.(e);
+        if (!e.defaultPrevented && isToggleable) toggle();
+      }}
+      {...rest}
+    >
+      {children}
     </div>
   );
 }

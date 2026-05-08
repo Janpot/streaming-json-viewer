@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { JsonViewer } from 'streaming-json-viewer';
 import type { StreamValue } from 'streaming-json-viewer';
+import { Chevron } from './chevron';
 
 function generateDemoJson(count: number): string {
   const tags = ['urgent', 'review', 'draft', 'blocked', 'ready', 'shipped', 'archived'];
@@ -153,9 +154,7 @@ export default function Page() {
               </button>
             </div>
           )}
-          {fetchError && mode === 'url' && (
-            <div className="fetch-error">{fetchError}</div>
-          )}
+          {fetchError && mode === 'url' && <div className="fetch-error">{fetchError}</div>}
 
           {mode === 'paste' && (
             <div className="input-row">
@@ -195,7 +194,16 @@ export default function Page() {
                 </div>
               </div>
               <JsonViewer.Viewport className="json-viewer" style={{ flex: 1 }}>
-                <JsonViewer.Body>{() => <JsonViewer.Line className="row" />}</JsonViewer.Body>
+                <JsonViewer.Body>
+                  {() => (
+                    <JsonViewer.Line className="row">
+                      <JsonViewer.Trigger className="trigger">
+                        <Chevron />
+                      </JsonViewer.Trigger>
+                      <JsonViewer.LineContent />
+                    </JsonViewer.Line>
+                  )}
+                </JsonViewer.Body>
               </JsonViewer.Viewport>
             </JsonViewer.Root>
           </div>

@@ -18,7 +18,7 @@ import { createTokenizer } from './tokenizer';
 import { createParser } from './parser';
 import { createTreeBuilder, getLineAt, nextLine } from './tree';
 import { ingest, type StreamValue } from './ingest';
-import { Line, LineContext, ROW_HEIGHT, type LineContextValue } from './Row';
+import { Line, LineContent, LineContext, ROW_HEIGHT, Trigger, type LineContextValue } from './Row';
 import type { ContainerNode, LineCursor, Status } from './types';
 
 const OVERSCAN = 12;
@@ -172,15 +172,14 @@ function Status(props: StatusProps) {
 }
 
 export interface BodyProps {
-  children?: () => ReactNode;
+  children: () => ReactNode;
 }
-
-const defaultBodyRenderer = () => <Line />;
 
 /**
  * Slot/marker. The render-prop runs once per visible row + once per sticky row
- * inside a LineContext provider. Use `useLine()` (or render `<JsonViewer.Line />`)
- * to read the current row's data. When omitted, defaults to rendering `<JsonViewer.Line />`.
+ * inside a LineContext provider. Use `useLine()` to read the current row's
+ * data, and compose `<JsonViewer.Line>` with `<JsonViewer.Trigger>` and
+ * `<JsonViewer.LineContent>` (or your own parts) inside.
  */
 function Body(_props: BodyProps): null {
   return null;
@@ -197,7 +196,11 @@ function findBodyRenderer(children: ReactNode): (() => ReactNode) | null {
       if (renderer) found = renderer;
     }
   });
-  return hasBody ? (found ?? defaultBodyRenderer) : null;
+  if (!hasBody) return null;
+  if (!found) {
+    throw new Error('JsonViewer.Body requires a render-prop child');
+  }
+  return found;
 }
 
 interface WrapperEntry {
@@ -265,7 +268,8 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   const spacerHeight = Math.max(Math.min(fullHeight, SAFE_MAX_SPACER_HEIGHT), ROW_HEIGHT);
   const scrollRange = Math.max(1, spacerHeight - containerHeight);
   const docRange = Math.max(0, fullHeight - containerHeight);
-  const factor = docRange === 0 || fullHeight <= SAFE_MAX_SPACER_HEIGHT ? 1 : docRange / scrollRange;
+  const factor =
+    docRange === 0 || fullHeight <= SAFE_MAX_SPACER_HEIGHT ? 1 : docRange / scrollRange;
   const docScrollTop = factor === 1 ? scrollTop : scrollTop * factor + localOffset;
 
   // Click-to-collapse on a sticky header should keep the row pinned at the
@@ -319,7 +323,10 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   }, [factor, docRange, docScrollTop]);
 
   const startIdx = Math.max(0, Math.floor(docScrollTop / ROW_HEIGHT) - OVERSCAN);
-  const endIdx = Math.min(totalLines, Math.ceil((docScrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN);
+  const endIdx = Math.min(
+    totalLines,
+    Math.ceil((docScrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN,
+  );
 
   // Walk root → deepest non-transparent ancestor whose body covers the
   // viewport. Each entry becomes a wrapper div with a position:sticky open.
@@ -569,4 +576,6 @@ export const JsonViewer = {
   Viewport,
   Body,
   Line,
+  Trigger,
+  LineContent,
 };
