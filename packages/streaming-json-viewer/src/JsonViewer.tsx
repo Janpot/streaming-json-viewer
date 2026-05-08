@@ -460,6 +460,13 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     );
   };
 
+  // Per-wrapper offset that compensates for the factor>1 compression so CSS
+  // sticky's pin/push transitions land at the exact doc moment they would in
+  // factor==1. Zero when factor==1 (delta = 0).
+  const delta = (factor - 1) / factor;
+  const wrapperTopAbs = (entry: WrapperEntry) =>
+    (entry.lineIdx * ROW_HEIGHT) / factor + entry.depth * ROW_HEIGHT * delta;
+
   const renderWrapper = (level: number): ReactNode => {
     const entry = wrapperChain[level]!;
     const node = nodes[entry.id];
@@ -468,18 +475,18 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     const bucket = buckets[level]!;
     const nested = wrapperChain[level + 1];
 
-    // Wrapper top is static in spacer-DOM coords (scaled by `factor` so the
-    // wrapper fits the capped spacer). Top is relative to the parent wrapper
-    // for nested levels, or to the spacer for level 0. No translateY here —
-    // the wrapper scrolls naturally with the spacer.
+    // Wrapper top is static in spacer-DOM coords. The depth*RH*delta term
+    // shifts the wrapper down so that, after CSS sticky's `top: depth*RH`
+    // offset, the pin/pushup transitions match the doc-coord moments they
+    // would in factor==1 mode (no early pin, no early pushup).
+    const topAbs = wrapperTopAbs(entry);
     const wrapperTop =
       level === 0
-        ? Math.round((entry.lineIdx * ROW_HEIGHT) / factor)
-        : Math.round(((entry.lineIdx - wrapperChain[level - 1]!.lineIdx) * ROW_HEIGHT) / factor);
-    // Wrapper height: scaled by factor so it stays under the browser layout
-    // cap. Sticky pin/push timing is preserved because the entire wrapper
-    // (top, height, sticky bound) shrinks uniformly.
-    const wrapperHeight = ((entry.subtreeLines - 1) * ROW_HEIGHT) / factor;
+        ? Math.round(topAbs)
+        : Math.round(topAbs - wrapperTopAbs(wrapperChain[level - 1]!));
+    // Adding RH*delta keeps the wrapper bottom aligned with the close-row's
+    // scroll-coord position, so sticky pushup fires exactly at the close.
+    const wrapperHeight = ((entry.subtreeLines - 1) * ROW_HEIGHT) / factor + ROW_HEIGHT * delta;
 
     // CSS sticky: pin at depth*ROW_HEIGHT relative to the scroll container.
     // The wrapper's height is the range the sticky stays pinned over; when
@@ -528,10 +535,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
           </div>
         </LineContext.Provider>
         {bucket.map((it) =>
-          renderAbsRow(
-            it,
-            Math.round(it.idx * ROW_HEIGHT + translateY - (entry.lineIdx * ROW_HEIGHT) / factor),
-          ),
+          renderAbsRow(it, Math.round(it.idx * ROW_HEIGHT + translateY - topAbs)),
         )}
         {nested ? renderWrapper(level + 1) : null}
       </div>
