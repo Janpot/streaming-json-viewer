@@ -284,7 +284,8 @@ body {
   width: 10px;
   height: 10px;
 }
-.json-viewer::-webkit-scrollbar-track {
+.json-viewer::-webkit-scrollbar-track,
+.json-viewer::-webkit-scrollbar-corner {
   background: transparent;
 }
 .json-viewer::-webkit-scrollbar-thumb {
