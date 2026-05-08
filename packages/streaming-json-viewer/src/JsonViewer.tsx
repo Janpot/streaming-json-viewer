@@ -468,14 +468,18 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     const bucket = buckets[level]!;
     const nested = wrapperChain[level + 1];
 
-    // Wrapper top: relative to parent wrapper (for nested) or relative to
-    // spacer (for root, with translateY for pixel-cap mode).
+    // Wrapper top is static in spacer-DOM coords (scaled by `factor` so the
+    // wrapper fits the capped spacer). Top is relative to the parent wrapper
+    // for nested levels, or to the spacer for level 0. No translateY here —
+    // the wrapper scrolls naturally with the spacer.
     const wrapperTop =
       level === 0
-        ? Math.round(entry.lineIdx * ROW_HEIGHT + translateY)
-        : (entry.lineIdx - wrapperChain[level - 1]!.lineIdx) * ROW_HEIGHT;
-    // Wrapper height excludes the close row (close lives in parent's bucket).
-    const wrapperHeight = (entry.subtreeLines - 1) * ROW_HEIGHT;
+        ? Math.round((entry.lineIdx * ROW_HEIGHT) / factor)
+        : Math.round(((entry.lineIdx - wrapperChain[level - 1]!.lineIdx) * ROW_HEIGHT) / factor);
+    // Wrapper height: scaled by factor so it stays under the browser layout
+    // cap. Sticky pin/push timing is preserved because the entire wrapper
+    // (top, height, sticky bound) shrinks uniformly.
+    const wrapperHeight = ((entry.subtreeLines - 1) * ROW_HEIGHT) / factor;
 
     // CSS sticky: pin at depth*ROW_HEIGHT relative to the scroll container.
     // The wrapper's height is the range the sticky stays pinned over; when
@@ -523,7 +527,12 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
             {renderRow()}
           </div>
         </LineContext.Provider>
-        {bucket.map((it) => renderAbsRow(it, (it.idx - entry.lineIdx) * ROW_HEIGHT))}
+        {bucket.map((it) =>
+          renderAbsRow(
+            it,
+            Math.round(it.idx * ROW_HEIGHT + translateY - (entry.lineIdx * ROW_HEIGHT) / factor),
+          ),
+        )}
         {nested ? renderWrapper(level + 1) : null}
       </div>
     );
