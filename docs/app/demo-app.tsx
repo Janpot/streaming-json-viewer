@@ -1,0 +1,179 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import type { StreamValue } from 'streaming-json-viewer';
+import { DemoViewer } from './demo-viewer';
+
+function generateDemoJson(count: number): string {
+  const tags = ['urgent', 'review', 'draft', 'blocked', 'ready', 'shipped', 'archived'];
+  const items: unknown[] = [];
+  for (let i = 0; i < count; i++) {
+    items.push({
+      id: i,
+      sku: `SKU-${(i * 9301 + 49297) % 233280}`,
+      name: `Item ${i}`,
+      active: i % 7 !== 0,
+      price: Math.round(Math.random() * 99999) / 100,
+      tags: [tags[i % tags.length], tags[(i * 3) % tags.length]],
+      meta: {
+        createdAt: new Date(Date.UTC(2020, 0, 1) + i * 86400000).toISOString(),
+        notes: i % 5 === 0 ? null : `Annotation for item ${i}, used for downstream analysis.`,
+        score: i % 11 === 0 ? null : (i * 0.137) % 1,
+        flags: { synced: i % 3 === 0, dirty: i % 13 === 0 },
+      },
+    });
+  }
+  return JSON.stringify({
+    generatedAt: new Date().toISOString(),
+    count,
+    schema: { version: '1.4.0', fields: ['id', 'sku', 'name', 'active', 'price', 'tags', 'meta'] },
+    items,
+  });
+}
+
+type Mode = 'demo' | 'url' | 'paste';
+
+export function DemoApp() {
+  const [mode, setMode] = useState<Mode>('demo');
+  const [demoSize, setDemoSize] = useState(10000);
+  const [urlValue, setUrlValue] = useState('');
+  const [pasteValue, setPasteValue] = useState(
+    '{"hello":"world","nested":{"arr":[1,2,3,true,null]}}',
+  );
+  const [active, setActive] = useState<{
+    value: StreamValue;
+    format: 'json' | 'jsonl';
+    key: number;
+  } | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [urlFormat, setUrlFormat] = useState<'json' | 'jsonl'>('json');
+
+  const run = async () => {
+    setFetchError(null);
+    if (mode === 'demo') {
+      setGenerating(true);
+      await new Promise((r) => setTimeout(r, 16));
+      const json = generateDemoJson(demoSize);
+      setGenerating(false);
+      setActive({ value: json, format: 'json', key: Date.now() });
+    } else if (mode === 'url') {
+      const url = urlValue.trim();
+      if (!url) return;
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.body) throw new Error('Response has no body');
+        setActive({ value: res.body, format: urlFormat, key: Date.now() });
+      } catch (e) {
+        setFetchError(e instanceof Error ? e.message : String(e));
+      }
+    } else if (mode === 'paste') {
+      if (!pasteValue.trim()) return;
+      setActive({ value: pasteValue, format: 'json', key: Date.now() });
+    }
+  };
+
+  useEffect(() => {
+    const tab = new URLSearchParams(window.location.search).get('tab');
+    if (tab === 'url' || tab === 'paste') {
+      setMode(tab);
+    } else {
+      void run();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const switchMode = (next: Mode) => {
+    setMode(next);
+    const url = new URL(window.location.href);
+    if (next === 'demo') url.searchParams.delete('tab');
+    else url.searchParams.set('tab', next);
+    window.history.replaceState(null, '', url);
+  };
+
+  return (
+    <>
+      <div className="controls">
+        <div className="mode-row">
+          <button
+            className={`mode-btn ${mode === 'demo' ? 'mode-btn-active' : ''}`}
+            onClick={() => switchMode('demo')}
+          >
+            demo
+          </button>
+          <button
+            className={`mode-btn ${mode === 'url' ? 'mode-btn-active' : ''}`}
+            onClick={() => switchMode('url')}
+          >
+            url
+          </button>
+          <button
+            className={`mode-btn ${mode === 'paste' ? 'mode-btn-active' : ''}`}
+            onClick={() => switchMode('paste')}
+          >
+            paste
+          </button>
+        </div>
+
+        {mode === 'demo' && (
+          <div className="input-row">
+            <select
+              className="select"
+              value={demoSize}
+              onChange={(e) => setDemoSize(parseInt(e.target.value))}
+            >
+              <option value={1000}>1,000 items (~145 KB)</option>
+              <option value={10000}>10,000 items (~1.5 MB)</option>
+              <option value={50000}>50,000 items (~7.5 MB)</option>
+              <option value={100000}>100,000 items (~15 MB)</option>
+            </select>
+            <button className="run-btn" onClick={run} disabled={generating}>
+              {generating ? 'generating…' : 'parse'}
+            </button>
+          </div>
+        )}
+
+        {mode === 'url' && (
+          <div className="input-row">
+            <input
+              className="input"
+              type="text"
+              placeholder="https://example.com/data.json (must allow CORS)"
+              value={urlValue}
+              onChange={(e) => setUrlValue(e.target.value)}
+            />
+            <select
+              className="select"
+              value={urlFormat}
+              onChange={(e) => setUrlFormat(e.target.value as 'json' | 'jsonl')}
+            >
+              <option value="json">json</option>
+              <option value="jsonl">jsonl</option>
+            </select>
+            <button className="run-btn" onClick={run}>
+              fetch
+            </button>
+          </div>
+        )}
+        {fetchError && mode === 'url' && <div className="fetch-error">{fetchError}</div>}
+
+        {mode === 'paste' && (
+          <div className="input-row">
+            <textarea
+              className="textarea"
+              placeholder="paste JSON here…"
+              value={pasteValue}
+              onChange={(e) => setPasteValue(e.target.value)}
+            />
+            <button className="run-btn" onClick={run}>
+              parse
+            </button>
+          </div>
+        )}
+      </div>
+
+      <DemoViewer value={active?.value ?? null} format={active?.format} />
+    </>
+  );
+}

@@ -1,0 +1,61 @@
+.code-tabs {
+  margin-top: 14px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.code-tabs-bar {
+  display: flex;
+  background: var(--bg-emphasis);
+  border-bottom: 1px solid var(--border);
+}
+.code-tab {
+  background: transparent;
+  color: var(--fg-dim);
+  border: none;
+  padding: 8px 14px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 120ms;
+}
+.code-tab:hover {
+  color: var(--fg);
+}
+.code-tab-active {
+  color: var(--fg);
+  background: var(--bg-subtle);
+}
+.code-block {
+  overflow: auto;
+  max-height: 480px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.code-block::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.code-block::-webkit-scrollbar-track,
+.code-block::-webkit-scrollbar-corner {
+  background: transparent;
+}
+.code-block::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 5px;
+  border: 2px solid var(--bg-subtle);
+}
+.code-block::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+.code-block .shiki {
+  margin: 0;
+  padding: 14px;
+  background-color: transparent !important;
+  font-family: inherit;
+}
+.code-block .shiki code {
+  font-family: inherit;
+}

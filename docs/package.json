@@ -12,6 +12,7 @@
     "next": "^16.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "shiki": "^4.0.2",
     "streaming-json-viewer": "workspace:*"
   },
   "devDependencies": {

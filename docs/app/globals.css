@@ -63,6 +63,24 @@ body {
   font-family: 'JetBrains Mono', monospace;
 }
 
+.intro {
+  color: var(--fg-dim);
+  font-size: 14px;
+  line-height: 1.55;
+  margin: 0 0 18px;
+  max-width: 70ch;
+}
+
+.link {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  transition: border-color 120ms;
+}
+.link:hover {
+  border-bottom-color: var(--accent);
+}
+
 .controls {
   background: var(--bg-subtle);
   border: 1px solid var(--border);
@@ -164,205 +182,4 @@ body {
   border-radius: 4px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
-}
-
-.viewer-shell {
-  background: var(--bg-subtle);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow: hidden;
-  height: 580px;
-  display: flex;
-  flex-direction: column;
-}
-
-/* ---------------------------------------------------------------------------
- * streaming-json-viewer — visual theme (consumer-owned).
- * The library ships structural CSS only; everything below is the docs site's
- * own decoration of the documented class hooks and [data-sticky] attribute.
- * ------------------------------------------------------------------------- */
-
-.viewer-shell {
-  --row-height: 22px;
-  --font-mono: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, Consolas, monospace;
-  --font-size: 12.5px;
-
-  --bg-sticky: #181a20;
-  --bg-hover: #1a1d23;
-
-  --token-key: #7aa7d8;
-  --token-string: #c8a36a;
-  --token-number: #d97757;
-  --token-bool: #9b88d4;
-  --token-null: #6b7280;
-  --token-bracket: #6b7280;
-
-  --status-error: #e06c75;
-  --status-ok: #6fb07a;
-}
-
-.meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  background: var(--bg-emphasis);
-  border-bottom: 1px solid var(--border);
-  color: var(--fg);
-  font-family: var(--font-mono);
-  flex-shrink: 0;
-}
-.meta-group {
-  display: flex;
-  gap: 16px;
-  align-items: center;
-}
-.stat {
-  font-size: 11px;
-}
-.stat-label {
-  color: var(--fg-faint);
-  margin-right: 6px;
-}
-.stat-value {
-  color: var(--fg);
-  font-weight: 500;
-}
-.status {
-  font-size: 11px;
-  padding: 3px 8px;
-  border-radius: 4px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.status[data-status='streaming'] {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--accent);
-}
-.status[data-status='streaming']::before {
-  content: '';
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: status-pulse 1s ease-in-out infinite;
-}
-.status[data-status='done'] {
-  background: color-mix(in srgb, var(--status-ok) 12%, transparent);
-  color: var(--status-ok);
-}
-.status[data-status='error'] {
-  background: color-mix(in srgb, var(--status-error) 12%, transparent);
-  color: var(--status-error);
-}
-.status[data-status='idle'] {
-  color: var(--fg-faint);
-}
-@keyframes status-pulse {
-  0%,
-  100% {
-    opacity: 0.4;
-    transform: scale(0.8);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.1);
-  }
-}
-
-.json-viewer {
-  background: var(--bg-subtle);
-  color: var(--fg);
-  flex: 1;
-  font-family: var(--font-mono);
-  font-size: var(--font-size);
-  line-height: var(--row-height);
-}
-.json-viewer::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-.json-viewer::-webkit-scrollbar-track,
-.json-viewer::-webkit-scrollbar-corner {
-  background: transparent;
-}
-.json-viewer::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.06);
-  border-radius: 5px;
-  border: 2px solid var(--bg-subtle);
-}
-.json-viewer::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.14);
-}
-
-.line[data-sticky] {
-  background: var(--bg-sticky);
-  box-shadow: inset 2px 0 0 var(--accent);
-}
-.line[data-sticky-last]::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 100%;
-  height: 6px;
-  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0));
-  pointer-events: none;
-}
-
-.line {
-  height: var(--row-height);
-  line-height: var(--row-height);
-  display: flex;
-  align-items: center;
-  white-space: nowrap;
-  padding-right: 16px;
-  color: var(--fg);
-}
-.line[data-clickable] {
-  cursor: pointer;
-}
-.line[data-clickable]:hover {
-  background: var(--bg-hover);
-}
-.trigger {
-  color: var(--fg-faint);
-  transition: transform 80ms;
-}
-.trigger[data-state='open'] {
-  transform: rotate(90deg);
-}
-.json-viewer [data-token='property'] {
-  color: var(--token-key);
-}
-.json-viewer [data-token='colon'] {
-  color: var(--fg-faint);
-}
-.json-viewer [data-token='bracket'] {
-  color: var(--token-bracket);
-}
-.json-viewer [data-token='string'] {
-  color: var(--token-string);
-}
-.json-viewer [data-token='number'] {
-  color: var(--token-number);
-}
-.json-viewer [data-token='boolean'] {
-  color: var(--token-bool);
-}
-.json-viewer [data-token='null'] {
-  color: var(--token-null);
-  font-style: italic;
-}
-.json-viewer [data-token='ellipsis'] {
-  color: var(--fg-faint);
-  padding: 0 4px;
-}
-.json-viewer [data-token='count'] {
-  color: var(--fg-faint);
-  font-size: 10.5px;
-  margin-left: 8px;
-  font-style: italic;
 }
