@@ -335,7 +335,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   // Walk root → deepest non-transparent ancestor whose body covers the
   // viewport. Each entry becomes a wrapper div with a position:sticky open.
   const wrapperChain: WrapperEntry[] = [];
-  if (nodes.length > 0 && factor === 1) {
+  if (nodes.length > 0) {
     let curId = 0;
     let curOpen = 0;
     let depth = 0;
@@ -592,14 +592,15 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     );
   } else {
     // Pixel-cap fallback: spacer is capped, scrollTop ≠ docScrollTop. CSS
-    // sticky has no fixed point of reference here, so render flat absolute
-    // rows at viewport-relative positions. Sticky behavior is not provided
-    // in this mode (accepted: only triggers above ~363k lines).
+    // sticky can't be used here, so we manually pin headers as absolutely
+    // positioned overlays at viewport-relative slots.
     const rows = visibleLines.map(({ line, idx }) => {
+      // Skip rows that will be rendered as a pinned sticky overlay.
+      if (line.kind === 'open' && wrapperIds.has(line.id)) return null;
       const node = nodes[line.id];
       if (!node) return null;
       const parent = node.parentId >= 0 ? nodes[node.parentId]! : null;
-      const rowTop = idx * ROW_HEIGHT - docScrollTop + scrollTop;
+      const rowTop = Math.round(idx * ROW_HEIGHT - docScrollTop + scrollTop);
       const ctx: LineContextValue = {
         node,
         parent,
@@ -620,9 +621,53 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
         </LineContext.Provider>
       );
     });
+
+    const stickyRows = wrapperChain.map((entry, level) => {
+      const node = nodes[entry.id];
+      if (!node) return null;
+      const parent = node.parentId >= 0 ? nodes[node.parentId]! : null;
+      const naturalViewportY = entry.lineIdx * ROW_HEIGHT - docScrollTop;
+      const pinSlot = entry.depth * ROW_HEIGHT;
+      const closeViewportY = (entry.lineIdx + entry.subtreeLines - 1) * ROW_HEIGHT - docScrollTop;
+      const pinned = naturalViewportY < pinSlot;
+      const viewportY = pinned ? Math.min(pinSlot, closeViewportY - ROW_HEIGHT) : naturalViewportY;
+      const top = Math.round(scrollTop + viewportY);
+      const ctx: LineContextValue = {
+        node,
+        parent,
+        kind: 'open',
+        depth: entry.depth,
+        lineIdx: entry.lineIdx,
+        isSticky: pinned,
+        toggle: pinned
+          ? () => handleStickyToggle(entry.id, entry.lineIdx, level)
+          : () => store.toggleCollapse(entry.id),
+      };
+      return (
+        <LineContext.Provider key={`sticky-${entry.id}`} value={ctx}>
+          <div
+            className="sjv-wrapper-open"
+            data-sticky={pinned ? '' : undefined}
+            data-sticky-last={pinned && level === lastPinnedLevel ? '' : undefined}
+            style={{
+              position: 'absolute',
+              top,
+              left: 0,
+              right: 0,
+              height: ROW_HEIGHT,
+              zIndex: 100 - level,
+            }}
+          >
+            {renderRow()}
+          </div>
+        </LineContext.Provider>
+      );
+    });
+
     mainContent = (
       <div className="sjv-spacer" style={{ height: spacerHeight, position: 'relative' }}>
         {rows}
+        {stickyRows}
       </div>
     );
   }
