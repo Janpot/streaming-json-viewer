@@ -19,7 +19,7 @@ import { createParser } from './parser';
 import { createTreeBuilder, getLineAt, nextLine } from './tree';
 import { ingest, type StreamValue } from './ingest';
 import { LineContext, ROW_HEIGHT, type LineContextValue } from './Line';
-import type { ContainerNode, LineCursor, Status } from './types';
+import type { ContainerNode, LineCursor } from './types';
 
 const OVERSCAN = 12;
 // Browsers cap the maximum height of a single element. Firefox is the strictest
@@ -31,37 +31,26 @@ const SAFE_MAX_SPACER_HEIGHT = 8_000_000;
 export interface RootProps {
   value: StreamValue | null;
   chunkSize?: number;
-  onStatusChange?: (status: Status, error?: Error) => void;
   children: ReactNode;
 }
 
-function Root({ value, chunkSize = 65536, onStatusChange, children }: RootProps) {
+function Root({ value, chunkSize = 65536, children }: RootProps) {
   const storeRef = useRef<JsonViewerStore | null>(null);
   if (!storeRef.current) storeRef.current = new JsonViewerStore();
   const store = storeRef.current;
-
-  const onStatusChangeRef = useRef(onStatusChange);
-  useEffect(() => {
-    onStatusChangeRef.current = onStatusChange;
-  }, [onStatusChange]);
 
   useEffect(() => {
     const abort = new AbortController();
     const builder = createTreeBuilder();
     store.reset(builder.nodes);
-    const setStatus = (s: Status, err: Error | null = null) => {
-      store.setStatus(s, err);
-      onStatusChangeRef.current?.(s, err ?? undefined);
-    };
 
     if (value === null) {
-      setStatus('idle');
       return () => {
         abort.abort();
       };
     }
 
-    setStatus('streaming');
+    store.setStatus('streaming');
 
     // Wrap input in a transparent array root so multiple top-level values
     // (JSON Lines, concatenated JSON) land as siblings at depth 0. Single-
@@ -103,12 +92,12 @@ function Root({ value, chunkSize = 65536, onStatusChange, children }: RootProps)
           if (cancelled) return;
           builder.handlers.closeArray();
           scheduleFlush();
-          setStatus('done');
+          store.setStatus('done');
         } catch (e) {
           if (cancelled) return;
           if ((e as Error).name === 'AbortError') return;
           const err = e instanceof Error ? e : new Error(String(e));
-          setStatus('error', err);
+          store.setStatus('error', err);
         }
       })();
     });
@@ -127,34 +116,18 @@ function useStoreVersion(store: JsonViewerStore): number {
   return useSyncExternalStore(store.subscribe, store.getVersion, store.getVersion);
 }
 
-export type StatProps = HTMLAttributes<HTMLSpanElement>;
-
-function Bytes(props: StatProps) {
+function Bytes(props: HTMLAttributes<HTMLSpanElement>) {
   const store = useStore();
   useStoreVersion(store);
   return <span {...props}>{store.bytes.toLocaleString()}</span>;
 }
 
-function NodeCount(props: StatProps) {
-  const store = useStore();
-  useStoreVersion(store);
-  return <span {...props}>{store.nodes.length.toLocaleString()}</span>;
-}
-
-function LineCount(props: StatProps) {
-  const store = useStore();
-  useStoreVersion(store);
-  return <span {...props}>{store.totalLines.toLocaleString()}</span>;
-}
-
-export type StatusProps = HTMLAttributes<HTMLSpanElement>;
-
 /**
- * Renders the current viewer status as `<span data-status="...">{text}</span>`.
- * data-status is one of `streaming` | `done` | `error` | `idle` — style each
+ * Renders the current ingestion status as `<span data-status="...">{text}</span>`.
+ * `data-status` is one of `idle | streaming | done | error` — style each
  * variant via `[data-status='streaming']` etc.
  */
-function Status(props: StatusProps) {
+function Status(props: HTMLAttributes<HTMLSpanElement>) {
   const store = useStore();
   useStoreVersion(store);
   const { status, error } = store;
@@ -597,5 +570,5 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   );
 });
 
-export { Root, Bytes, NodeCount, LineCount, Status, Viewport, Body, Group };
+export { Root, Bytes, Status, Viewport, Body, Group };
 export { Line, Trigger, LineContent } from './Line';

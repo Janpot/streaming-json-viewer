@@ -4,8 +4,8 @@ export type StreamValue = string | ReadableStream<Uint8Array> | ReadableStream<s
 
 export interface IngestOptions {
   signal: AbortSignal;
-  onProgress: (bytes: number) => void;
   chunkSize?: number;
+  onProgress?: (bytes: number) => void;
 }
 
 const DEFAULT_YIELD_BUDGET_MS = 5;
@@ -45,7 +45,7 @@ export async function ingest(
 async function ingestString(
   str: string,
   tokenizer: Tokenizer,
-  { signal, onProgress, chunkSize = 65536 }: IngestOptions,
+  { signal, chunkSize = 65536, onProgress }: IngestOptions,
 ) {
   const yieldToMain = makeYielder();
   let pos = 0;
@@ -53,7 +53,7 @@ async function ingestString(
     if (signal.aborted) return;
     tokenizer.feed(str.slice(pos, pos + chunkSize));
     pos += chunkSize;
-    onProgress(Math.min(pos, str.length));
+    onProgress?.(Math.min(pos, str.length));
     await yieldToMain();
   }
   tokenizer.end();
@@ -68,6 +68,7 @@ async function ingestStream(
   const onAbort = () => reader.cancel().catch(() => {});
   signal.addEventListener('abort', onAbort);
 
+  const yieldToMain = makeYielder();
   let received = 0;
   let decoder: TextDecoder | null = null;
 
@@ -87,7 +88,11 @@ async function ingestStream(
         received += value.byteLength;
       }
       tokenizer.feed(text);
-      onProgress(received);
+      onProgress?.(received);
+      // Let rAF-scheduled flushes paint between chunks; for real network
+      // streams the budget rarely fills (reads naturally pace themselves),
+      // for in-memory tee'd streams this is what makes parsing visible.
+      await yieldToMain();
     }
     if (decoder) tokenizer.feed(decoder.decode());
     tokenizer.end();

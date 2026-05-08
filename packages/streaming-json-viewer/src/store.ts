@@ -3,7 +3,7 @@ import { propagateSubtreeChange } from './tree';
 
 /**
  * External store for a single JsonViewer instance. Holds the parsed tree and
- * the streaming state. Mutations call `notify()`; React subscribes via
+ * ingestion state. Mutations call `notify()`; React subscribes via
  * `useSyncExternalStore` and re-renders against the latest snapshot.
  */
 export class JsonViewerStore {
@@ -34,11 +34,6 @@ export class JsonViewerStore {
     this.bytes = 0;
     this.status = 'idle';
     this.error = null;
-    this.notify();
-  }
-
-  setBytes(b: number) {
-    this.bytes = b;
     this.notify();
   }
 

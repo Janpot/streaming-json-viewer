@@ -10,27 +10,8 @@ type Props = {
 
 export function DemoViewer({ value }: Props) {
   return (
-    <div className="viewer-shell">
-      <JsonViewer.Root value={value}>
-        <div className="meta">
-          <div className="meta-group">
-            <span className="stat">
-              <span className="stat-label">bytes</span>
-              <JsonViewer.Bytes className="stat-value" />
-            </span>
-            <span className="stat">
-              <span className="stat-label">nodes</span>
-              <JsonViewer.NodeCount className="stat-value" />
-            </span>
-            <span className="stat">
-              <span className="stat-label">lines</span>
-              <JsonViewer.LineCount className="stat-value" />
-            </span>
-          </div>
-          <div className="meta-group">
-            <JsonViewer.Status className="status" />
-          </div>
-        </div>
+    <JsonViewer.Root value={value}>
+      <div className="viewer-shell">
         <JsonViewer.Viewport className="json-viewer">
           <JsonViewer.Body>
             {() => (
@@ -47,7 +28,14 @@ export function DemoViewer({ value }: Props) {
             )}
           </JsonViewer.Body>
         </JsonViewer.Viewport>
-      </JsonViewer.Root>
-    </div>
+      </div>
+      <div className="status-bar">
+        <span className="status-bar-stat">
+          <span className="status-bar-label">bytes</span>
+          <JsonViewer.Bytes className="status-bar-value" />
+        </span>
+        <JsonViewer.Status className="status-chip" />
+      </div>
+    </JsonViewer.Root>
   );
 }

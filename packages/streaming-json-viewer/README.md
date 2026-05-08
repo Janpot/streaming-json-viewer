@@ -6,10 +6,6 @@ A streaming JSON viewer for React. Incremental parse, virtualized rendering, sti
 import { JsonViewer } from 'streaming-json-viewer';
 
 <JsonViewer.Root value={jsonStringOrStream}>
-  <div className="my-status-bar">
-    <JsonViewer.Bytes /> bytes · <JsonViewer.NodeCount /> nodes · <JsonViewer.LineCount /> lines ·{' '}
-    <JsonViewer.Status />
-  </div>
   <JsonViewer.Viewport style={{ flex: 1 }}>
     <JsonViewer.Body>
       {() => (
@@ -33,21 +29,14 @@ import { JsonViewer } from 'streaming-json-viewer';
 
 ### `<JsonViewer.Root>`
 
-| Prop             | Type                                                             | Description                                               |
-| ---------------- | ---------------------------------------------------------------- | --------------------------------------------------------- |
-| `value`          | `string \| ReadableStream<Uint8Array> \| ReadableStream<string>` | JSON source. Changing it restarts ingestion.              |
-| `chunkSize`      | `number = 65536`                                                 | Chunk size for string ingestion.                          |
-| `onStatusChange` | `(s, err?) => void`                                              | Notified on `'idle' \| 'streaming' \| 'done' \| 'error'`. |
+| Prop        | Type                                                             | Description                                  |
+| ----------- | ---------------------------------------------------------------- | -------------------------------------------- |
+| `value`     | `string \| ReadableStream<Uint8Array> \| ReadableStream<string>` | JSON source. Changing it restarts ingestion. |
+| `chunkSize` | `number = 65536`                                                 | Chunk size for string ingestion.             |
 
 Renders no DOM element — sets up shared state for the parts.
 
-### `<JsonViewer.Bytes>` · `<JsonViewer.NodeCount>` · `<JsonViewer.LineCount>`
-
-Render `<span>`s with the running byte count, node count, and total line count from the active ingestion. Forward HTML props.
-
-### `<JsonViewer.Status>`
-
-Renders `<span data-status="idle | streaming | done | error">{text}</span>`. Style each variant via `[data-status='streaming']` etc. Forwards HTML props.
+For a status bar (bytes streamed, idle/streaming/done/error), wire it up around the stream you pass in: `tee()` the `ReadableStream`, pass one branch to `<Root>`, and consume the other yourself to count bytes and observe completion / errors.
 
 ### `<JsonViewer.Viewport>`
 
