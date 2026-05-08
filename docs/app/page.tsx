@@ -76,9 +76,22 @@ export default function Page() {
   };
 
   useEffect(() => {
-    void run();
+    const tab = new URLSearchParams(window.location.search).get('tab');
+    if (tab === 'url' || tab === 'paste') {
+      setMode(tab);
+    } else {
+      void run();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const switchMode = (next: Mode) => {
+    setMode(next);
+    const url = new URL(window.location.href);
+    if (next === 'demo') url.searchParams.delete('tab');
+    else url.searchParams.set('tab', next);
+    window.history.replaceState(null, '', url);
+  };
 
   return (
     <div className="app">
@@ -88,7 +101,7 @@ export default function Page() {
             <h1 className="title">
               streaming <em>json</em> viewer
             </h1>
-            <div className="tagline">incremental parse · lazy line lookup · sticky ancestors</div>
+            <div className="tagline">streaming data · virtualized rendering · user styled</div>
           </div>
         </header>
 
@@ -96,19 +109,19 @@ export default function Page() {
           <div className="mode-row">
             <button
               className={`mode-btn ${mode === 'demo' ? 'mode-btn-active' : ''}`}
-              onClick={() => setMode('demo')}
+              onClick={() => switchMode('demo')}
             >
               demo
             </button>
             <button
               className={`mode-btn ${mode === 'url' ? 'mode-btn-active' : ''}`}
-              onClick={() => setMode('url')}
+              onClick={() => switchMode('url')}
             >
               url
             </button>
             <button
               className={`mode-btn ${mode === 'paste' ? 'mode-btn-active' : ''}`}
-              onClick={() => setMode('paste')}
+              onClick={() => switchMode('paste')}
             >
               paste
             </button>
@@ -209,22 +222,6 @@ export default function Page() {
               </JsonViewer.Body>
             </JsonViewer.Viewport>
           </JsonViewer.Root>
-        </div>
-
-        <div className="arch">
-          <div className="arch-title">{'// virtualization model'}</div>
-          each node caches <code>subtreeLines</code>. total = <code>root.subtreeLines</code> (O(1)).
-          <br />
-          line N lookup descends the tree using cached counts; subsequent lines via O(1){' '}
-          <code>nextLine</code>.
-          <br />
-          collapse just toggles a flag and bubbles the delta up the parent chain.
-          <br />
-          <br />
-          <div className="arch-title">{'// sticky behavior'}</div>
-          the same descent that finds the topmost row also produces the <code>path</code> of
-          ancestors above it — that&apos;s the sticky chain. click a sticky to collapse and re-pin
-          it.
         </div>
       </div>
     </div>
