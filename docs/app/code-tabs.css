@@ -1,13 +1,39 @@
 .code-tabs {
-  margin-top: 14px;
+  margin-bottom: 14px;
   background: var(--bg-subtle);
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
 }
+.code-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 10px 14px;
+  color: var(--fg-dim);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 120ms;
+}
+.code-toggle:hover {
+  color: var(--fg);
+}
+.code-toggle-icon {
+  display: inline-flex;
+  color: var(--fg-faint);
+  transition: transform 120ms;
+}
+.code-toggle-icon-open {
+  transform: rotate(90deg);
+}
 .code-tabs-bar {
   display: flex;
   background: var(--bg-emphasis);
+  border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }
 .code-tab {

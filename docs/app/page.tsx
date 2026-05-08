@@ -1,20 +1,22 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { codeToHtml } from 'shiki';
+import { codeToHtml, type BundledLanguage } from 'shiki';
 import { CodeTabs } from './code-tabs';
 import { DemoApp } from './demo-app';
 
 const THEME = 'github-dark';
 
-async function loadHighlighted(file: string, lang: 'tsx' | 'css'): Promise<string> {
+async function loadHighlighted(file: string, lang: BundledLanguage) {
   const source = await readFile(join(process.cwd(), 'app', file), 'utf8');
-  return codeToHtml(source, { lang, theme: THEME });
+  const html = await codeToHtml(source, { lang, theme: THEME });
+  return { name: file, html };
 }
 
 export default async function Page() {
-  const [tsxHtml, cssHtml] = await Promise.all([
+  const files = await Promise.all([
     loadHighlighted('demo-viewer.tsx', 'tsx'),
     loadHighlighted('demo-viewer.css', 'css'),
+    loadHighlighted('chevron.tsx', 'tsx'),
   ]);
 
   return (
@@ -38,8 +40,8 @@ export default async function Page() {
           lines, parses incrementally as bytes arrive, and stays interactive throughout.
         </p>
 
+        <CodeTabs files={files} />
         <DemoApp />
-        <CodeTabs tsxHtml={tsxHtml} cssHtml={cssHtml} />
       </div>
     </div>
   );

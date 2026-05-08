@@ -1,35 +1,46 @@
 'use client';
 
 import { useState } from 'react';
+import { Chevron } from './chevron';
 import './code-tabs.css';
 
-type Tab = 'tsx' | 'css';
-
 type Props = {
-  tsxHtml: string;
-  cssHtml: string;
+  files: { name: string; html: string }[];
 };
 
-export function CodeTabs({ tsxHtml, cssHtml }: Props) {
-  const [tab, setTab] = useState<Tab>('tsx');
-  const html = tab === 'tsx' ? tsxHtml : cssHtml;
+export function CodeTabs({ files }: Props) {
+  const [expanded, setExpanded] = useState(false);
+  const [activeName, setActiveName] = useState(files[0]?.name ?? '');
+  const active = files.find((f) => f.name === activeName) ?? files[0];
   return (
     <div className="code-tabs">
-      <div className="code-tabs-bar">
-        <button
-          className={`code-tab ${tab === 'tsx' ? 'code-tab-active' : ''}`}
-          onClick={() => setTab('tsx')}
-        >
-          index.tsx
-        </button>
-        <button
-          className={`code-tab ${tab === 'css' ? 'code-tab-active' : ''}`}
-          onClick={() => setTab('css')}
-        >
-          index.css
-        </button>
-      </div>
-      <div className="code-block" dangerouslySetInnerHTML={{ __html: html }} />
+      <button
+        type="button"
+        className="code-toggle"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+      >
+        <span className={`code-toggle-icon ${expanded ? 'code-toggle-icon-open' : ''}`}>
+          <Chevron />
+        </span>
+        <span>{expanded ? 'hide the code' : 'show the code'}</span>
+      </button>
+      {expanded && active && (
+        <>
+          <div className="code-tabs-bar">
+            {files.map((file) => (
+              <button
+                key={file.name}
+                className={`code-tab ${file.name === active.name ? 'code-tab-active' : ''}`}
+                onClick={() => setActiveName(file.name)}
+              >
+                {file.name}
+              </button>
+            ))}
+          </div>
+          <div className="code-block" dangerouslySetInnerHTML={{ __html: active.html }} />
+        </>
+      )}
     </div>
   );
 }
