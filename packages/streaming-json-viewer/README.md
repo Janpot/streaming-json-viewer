@@ -124,4 +124,4 @@ Renders the tokenized content of a row inside `<span data-token="content">`. Emi
 
 ## Theming
 
-Override any `--sjv-*` CSS variable on `.sjv-viewport` (or any ancestor). See `dist/styles.css` for the full list.
+Override any `--sjv-*` CSS variable on the viewport element (or any ancestor). See `dist/styles.css` for the full list.

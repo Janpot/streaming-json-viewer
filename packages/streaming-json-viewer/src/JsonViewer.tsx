@@ -588,7 +588,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   };
 
   return (
-    <div ref={setRefs} className={`sjv-viewport ${className ?? ''}`} style={mergedStyle} {...rest}>
+    <div ref={setRefs} className={className} style={mergedStyle} {...rest}>
       <div className="sjv-scroll" ref={scrollRef} onScroll={onScroll}>
         {mainContent}
       </div>
