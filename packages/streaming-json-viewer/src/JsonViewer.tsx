@@ -379,8 +379,10 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
           return;
         }
         if (!c || c.childIds.length === 0) return;
-        if (c.collapsed) store.toggleCollapse(startCursor.id);
-        else moveFocus(c.childIds[0]!);
+        if (c.collapsed) {
+          shouldFocusDomRef.current = true;
+          store.toggleCollapse(startCursor.id);
+        } else moveFocus(c.childIds[0]!);
         return;
       }
       case 'ArrowLeft': {
@@ -390,6 +392,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
           return;
         }
         if (c && !c.collapsed && c.childIds.length > 0) {
+          shouldFocusDomRef.current = true;
           store.toggleCollapse(startCursor.id);
           return;
         }
@@ -422,7 +425,10 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
           moveFocus(startCursor.id);
           return;
         }
-        if (c && c.childIds.length > 0) store.toggleCollapse(startCursor.id);
+        if (c && c.childIds.length > 0) {
+          shouldFocusDomRef.current = true;
+          store.toggleCollapse(startCursor.id);
+        }
         return;
       }
     }
@@ -713,15 +719,18 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   }
 
   // After a render where focusedId was changed by user interaction (click,
-  // keyboard, onFocus), move DOM focus onto the matching row. Guarded by a
-  // ref so background notifies (streaming) don't steal focus.
+  // keyboard, onFocus) — OR a render where the DOM element for the same
+  // focusedId got remounted (e.g., a wrapper collapse re-renders the row
+  // from a sticky position to an absolute one) — restore DOM focus to the
+  // matching row. Runs on every commit, guarded by `shouldFocusDomRef` so
+  // background notifies (streaming) never steal focus.
   useLayoutEffect(() => {
     if (focusedId === null) return;
     if (!shouldFocusDomRef.current) return;
     shouldFocusDomRef.current = false;
     const el = document.getElementById(`${instanceId}-line-${focusedId}`);
     if (el && el !== document.activeElement) el.focus({ preventScroll: true });
-  }, [focusedId, instanceId]);
+  });
 
   const mainContent: ReactNode = (
     <div style={{ height: spacerHeight, position: 'relative' }}>
