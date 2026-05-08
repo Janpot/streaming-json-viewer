@@ -10,6 +10,7 @@ import {
   useState,
   useSyncExternalStore,
   type CSSProperties,
+  type FocusEventHandler,
   type HTMLAttributes,
   type KeyboardEventHandler,
   type ReactNode,
@@ -227,7 +228,17 @@ interface VisibleEntry {
 export type ViewportProps = HTMLAttributes<HTMLDivElement> & { children?: ReactNode };
 
 const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
-  { className, style, children, onScroll: userOnScroll, onKeyDown: userOnKeyDown, role, ...rest },
+  {
+    className,
+    style,
+    children,
+    onScroll: userOnScroll,
+    onKeyDown: userOnKeyDown,
+    onFocus: userOnFocus,
+    onBlur: userOnBlur,
+    role,
+    ...rest
+  },
   forwardedRef,
 ) {
   const bodyRenderer = findBodyRenderer(children);
@@ -248,6 +259,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   const { nodes, totalLines, focusedId, status } = store;
   const instanceId = useInstanceId();
   const shouldFocusDomRef = useRef(false);
+  const [hasFocusWithin, setHasFocusWithin] = useState(false);
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -577,6 +589,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     if (!node) return null;
     const parent = node.parentId >= 0 ? nodes[node.parentId]! : null;
     const isOpen = entry.line.kind === 'open';
+    const isFocused = isOpen && entry.line.id === effectiveFocusedId;
     return {
       node,
       parent,
@@ -584,7 +597,8 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       depth: entry.line.depth,
       lineIdx: entry.idx,
       ...extras,
-      isFocused: isOpen && entry.line.id === effectiveFocusedId,
+      isFocused,
+      hasFocus: isFocused && hasFocusWithin,
       focus: () => moveFocus(node.id),
       lineId: `${instanceId}-line-${node.id}`,
     };
@@ -686,6 +700,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
         ? () => handleStickyToggle(entry.id, entry.lineIdx, level)
         : () => store.toggleCollapse(entry.id),
       isFocused: entry.id === effectiveFocusedId,
+      hasFocus: entry.id === effectiveFocusedId && hasFocusWithin,
       focus: () => moveFocus(entry.id),
       lineId: `${instanceId}-line-${entry.id}`,
     };
@@ -751,6 +766,22 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     ...style,
   };
 
+  const onFocus: FocusEventHandler<HTMLDivElement> = (e) => {
+    setHasFocusWithin(true);
+    userOnFocus?.(e);
+  };
+
+  const onBlur: FocusEventHandler<HTMLDivElement> = (e) => {
+    // Only flip off when focus moves outside the viewer. Focus moves between
+    // rows inside fire blur with relatedTarget pointing at the new row, which
+    // is still inside `viewportRef`, so we keep `hasFocusWithin` true.
+    const next = e.relatedTarget as Node | null;
+    if (!next || !viewportRef.current?.contains(next)) {
+      setHasFocusWithin(false);
+    }
+    userOnBlur?.(e);
+  };
+
   return (
     <div
       ref={setRefs}
@@ -760,6 +791,8 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       aria-busy={status === 'streaming' ? true : undefined}
       onScroll={onScroll}
       onKeyDown={onKeyDown}
+      onFocus={onFocus}
+      onBlur={onBlur}
       {...rest}
     >
       {mainContent}

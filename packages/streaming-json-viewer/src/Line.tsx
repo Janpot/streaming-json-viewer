@@ -25,7 +25,12 @@ export interface LineContextValue {
   height: number;
   zIndex?: number;
   toggle: () => void;
+  /** True for the row that owns the tab stop (`tabIndex=0`). Stays set even
+   * when DOM focus is outside the viewer so Tab can re-enter. */
   isFocused: boolean;
+  /** True only when `isFocused` AND the viewer currently contains DOM focus.
+   * Drives `data-focused` so the visible highlight clears on Tab-out. */
+  hasFocus: boolean;
   focus: () => void;
   lineId: string;
 }
@@ -218,6 +223,7 @@ export function Line({ className, style, onClick, onFocus, children, ...rest }: 
     isSticky,
     isStickyLast,
     isFocused,
+    hasFocus,
     focus,
     lineId,
   } = ctx;
@@ -262,7 +268,7 @@ export function Line({ className, style, onClick, onFocus, children, ...rest }: 
       data-collapsed={collapsed ? '' : undefined}
       data-empty={empty ? '' : undefined}
       data-clickable={isToggleable ? '' : undefined}
-      data-focused={!isClose && isFocused ? '' : undefined}
+      data-focused={!isClose && hasFocus ? '' : undefined}
       data-sticky={isSticky ? '' : undefined}
       data-sticky-last={isStickyLast ? '' : undefined}
       tabIndex={isClose ? -1 : isFocused ? 0 : -1}
