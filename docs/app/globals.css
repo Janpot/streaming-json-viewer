@@ -81,6 +81,16 @@ body {
   border-bottom-color: var(--accent);
 }
 
+.gh-link {
+  display: inline-flex;
+  align-items: center;
+  color: var(--fg-dim);
+  transition: color 120ms;
+}
+.gh-link:hover {
+  color: var(--fg);
+}
+
 .controls {
   background: var(--bg-subtle);
   border: 1px solid var(--border);
