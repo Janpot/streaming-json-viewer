@@ -55,6 +55,16 @@
   color: var(--fg);
   background: var(--bg-subtle);
 }
+.code-block-stack {
+  display: grid;
+}
+.code-block-stack > .code-block {
+  grid-area: 1 / 1;
+}
+.code-block-stack > .code-block[hidden] {
+  display: block;
+  visibility: hidden;
+}
 .code-block {
   overflow: auto;
   max-height: 480px;

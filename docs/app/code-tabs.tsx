@@ -38,7 +38,16 @@ export function CodeTabs({ files }: Props) {
               </button>
             ))}
           </div>
-          <div className="code-block" dangerouslySetInnerHTML={{ __html: active.html }} />
+          <div className="code-block-stack">
+            {files.map((file) => (
+              <div
+                key={file.name}
+                className="code-block"
+                hidden={file.name !== active.name}
+                dangerouslySetInnerHTML={{ __html: file.html }}
+              />
+            ))}
+          </div>
         </div>
       )}
     </div>
