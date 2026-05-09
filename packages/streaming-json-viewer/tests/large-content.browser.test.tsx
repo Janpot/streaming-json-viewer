@@ -3,6 +3,7 @@ import { render } from 'vitest-browser-react';
 import { userEvent } from 'vitest/browser';
 import { TestViewer } from './helpers/TestViewer';
 import {
+  makeDemoMirrorFixture,
   makeHugeArrayOfObjectsFixture,
   makeHugeJsonlFixture,
   makeSingleHugeArrayFixture,
@@ -164,5 +165,17 @@ describe('large content (factor > 1)', () => {
     await expect
       .element(screen.getByTestId('tv-viewport'))
       .toMatchScreenshot('single-container-scroll-bottom');
+  }, 120_000);
+
+  test('screenshot — docs 15MB demo mirror wheeled to the bottom', async () => {
+    // 100k items × ~20 lines each ≈ 2M lines (matches docs `15MB` demo).
+    const screen = await render(<TestViewer value={makeDemoMirrorFixture(100_000)} />);
+    await waitForStatus('done', 60_000);
+    const viewport = screen.getByTestId('tv-viewport').element() as HTMLDivElement;
+    await userEvent.wheel(viewport, { delta: { y: 1e9 } });
+    await settle();
+    await expect
+      .element(screen.getByTestId('tv-viewport'))
+      .toMatchScreenshot('demo-mirror-scroll-bottom');
   }, 120_000);
 });

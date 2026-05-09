@@ -100,11 +100,48 @@ export function makeSingleHugeArrayFixture(count = 500_000): string {
  * count whose uncompressed height (`totalLines × ROW_HEIGHT`) exceeds the
  * browser's element-coord limit (~33M px in Chromium). Nesting the array
  * inside a parent object exercises the multi-level sticky chain (root `{` at
- * depth 0, `"items": [` at depth 1, each item at depth 2). Mirrors the docs
- * 15MB demo's structure.
+ * depth 0, `"items": [` at depth 1, each item at depth 2).
  */
 export function makeHugeArrayOfObjectsFixture(count = 600_000): string {
   const parts = new Array<string>(count);
   for (let i = 0; i < count; i++) parts[i] = `{"i":${i}}`;
   return `{"items":[${parts.join(',')}]}`;
+}
+
+/**
+ * Mirror of the docs `15MB` demo (`docs/app/demo-app.tsx` `generateDemoJson`).
+ * Each item is ~20 lines (id / sku / name / active / price / tags array of 2 /
+ * meta object with createdAt / notes / score / flags object), nested inside
+ * a root object alongside `generatedAt`, `count`, and `schema` siblings. Used
+ * for visual screenshots of factor>1 rendering on the same shape users hit
+ * in the demo.
+ */
+export function makeDemoMirrorFixture(count: number): string {
+  const TAGS = ['urgent', 'review', 'draft', 'blocked', 'ready', 'shipped', 'archived'];
+  const items: unknown[] = new Array(count);
+  for (let i = 0; i < count; i++) {
+    items[i] = {
+      id: i,
+      sku: `SKU-${(i * 9301 + 49297) % 233280}`,
+      name: `Item ${i}`,
+      active: i % 7 !== 0,
+      price: Math.round(((i * 31) % 9999999) / 100) / 100,
+      tags: [TAGS[i % TAGS.length], TAGS[(i * 3) % TAGS.length]],
+      meta: {
+        createdAt: new Date(Date.UTC(2020, 0, 1) + i * 86400000).toISOString(),
+        notes: i % 5 === 0 ? null : `Annotation for item ${i}, used for downstream analysis.`,
+        score: i % 11 === 0 ? null : (i * 0.137) % 1,
+        flags: { synced: i % 3 === 0, dirty: i % 13 === 0 },
+      },
+    };
+  }
+  return JSON.stringify({
+    generatedAt: '2026-05-09T00:00:00.000Z',
+    count,
+    schema: {
+      version: '1.4.0',
+      fields: ['id', 'sku', 'name', 'active', 'price', 'tags', 'meta'],
+    },
+    items,
+  });
 }
