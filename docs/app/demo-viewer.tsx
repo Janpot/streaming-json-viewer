@@ -34,7 +34,7 @@ export function DemoViewer({ value }: Props) {
           <span className="status-bar-label">bytes</span>
           <JsonViewer.Bytes className="status-bar-value" />
         </span>
-        <JsonViewer.Status className="status-chip" />
+        <JsonViewer.StatusLabel className="status-chip" />
       </div>
     </JsonViewer.Root>
   );

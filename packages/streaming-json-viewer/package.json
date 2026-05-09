@@ -18,16 +18,25 @@
   "scripts": {
     "build": "tsdown",
     "dev": "tsdown --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:install": "playwright install chromium",
+    "test:update-screenshots": "vitest run -u"
   },
   "peerDependencies": {
     "react": ">=18",
     "react-dom": ">=18"
   },
   "devDependencies": {
+    "@vitest/browser": "^4.1.5",
+    "@vitest/browser-playwright": "^4.1.5",
+    "playwright": "^1.59.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
     "tsdown": "^0.9.0",
     "typescript": "^5.7.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "vitest": "^4.1.5",
+    "vitest-browser-react": "^2.2.0"
   }
 }

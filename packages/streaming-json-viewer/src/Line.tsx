@@ -32,6 +32,10 @@ export interface LineContextValue {
    * Drives `data-focused` so the visible highlight clears on Tab-out. */
   hasFocus: boolean;
   focus: () => void;
+  /** Update the store's focused row without scheduling a DOM-focus restore.
+   * Use from focus event handlers — DOM focus is already on the row, so the
+   * restore would be redundant and can leak across renders. */
+  syncFocus: () => void;
   lineId: string;
 }
 
@@ -196,9 +200,9 @@ export type LineProps = HTMLAttributes<HTMLDivElement> & { children: ReactNode }
 
 /**
  * Row wrapper. Owns row positioning (absolute or sticky), indent padding, and
- * row-level state via data attributes (`data-kind="open|close"`, `data-type`,
- * `data-collapsed`, `data-empty`, `data-clickable`, `data-focused`,
- * `data-sticky`, `data-sticky-last`). Children are required: compose
+ * row-level state via data attributes (`data-type`, `data-collapsed`,
+ * `data-empty`, `data-clickable`, `data-focused`, `data-sticky`,
+ * `data-sticky-last`). Children are required: compose
  * `<Trigger>` and `<LineContent>` (or a custom equivalent) inside.
  *
  * For accessibility, open rows render as `role="treeitem"` with
@@ -225,6 +229,7 @@ export function Line({ className, style, onClick, onFocus, children, ...rest }: 
     isFocused,
     hasFocus,
     focus,
+    syncFocus,
     lineId,
   } = ctx;
   const { empty, collapsed, isContainer, isToggleable } = getLineShape(ctx);
@@ -255,7 +260,7 @@ export function Line({ className, style, onClick, onFocus, children, ...rest }: 
 
   const handleFocus: FocusEventHandler<HTMLDivElement> = (e) => {
     onFocus?.(e);
-    if (!isClose) focus();
+    if (!isClose) syncFocus();
   };
 
   return (
@@ -263,7 +268,6 @@ export function Line({ className, style, onClick, onFocus, children, ...rest }: 
       id={isClose ? undefined : lineId}
       className={className}
       style={mergedStyle}
-      data-kind={kind}
       data-type={node.type}
       data-collapsed={collapsed ? '' : undefined}
       data-empty={empty ? '' : undefined}

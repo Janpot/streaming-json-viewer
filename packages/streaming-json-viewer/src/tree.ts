@@ -205,7 +205,7 @@ export function nextLine(nodes: TreeNode[], line: LineCursor): LineCursor | null
 // but the close row is what visually terminates the subtree).
 function deepestLastLine(nodes: TreeNode[], id: number, depth: number): LineCursor {
   let curId = id;
-  let curDepth = depth;
+  const curDepth = depth;
   while (true) {
     const node = nodes[curId]!;
     const isContainer = node.type === 'object' || node.type === 'array';
@@ -263,7 +263,7 @@ export function prevOpenLine(nodes: TreeNode[], line: LineCursor): LineCursor | 
 export function firstOpenLine(nodes: TreeNode[]): LineCursor | null {
   if (nodes.length === 0) return null;
   let curId = 0;
-  let depth = 0;
+  const depth = 0;
   while (true) {
     const node = nodes[curId]!;
     const isContainer = node.type === 'object' || node.type === 'array';

@@ -32,7 +32,7 @@ import {
 } from './tree';
 import { ingest, type StreamValue } from './ingest';
 import { LineContext, ROW_HEIGHT, type LineContextValue } from './Line';
-import type { ContainerNode, LineCursor } from './types';
+import type { ContainerNode, LineCursor, Status } from './types';
 
 const OVERSCAN = 12;
 // Browsers cap the maximum height of a single element. Firefox is the strictest
@@ -140,23 +140,34 @@ function Bytes(props: HTMLAttributes<HTMLSpanElement>) {
   return <span {...props}>{store.bytes.toLocaleString()}</span>;
 }
 
+const DEFAULT_STATUS_LABELS: Record<Status, string> = {
+  idle: 'idle',
+  streaming: 'streaming',
+  done: 'complete',
+  error: 'error',
+};
+
+export interface StatusLabelProps extends HTMLAttributes<HTMLSpanElement> {
+  /** Per-status label overrides. Any status not present falls back to the
+   * default. The `error` label, if omitted, falls back to the thrown error's
+   * `message` before the default. */
+  labels?: Partial<Record<Status, string>>;
+}
+
 /**
- * Renders the current ingestion status as `<span data-status="...">{text}</span>`.
+ * Renders the current ingestion status as `<span data-status="...">{label}</span>`.
  * `data-status` is one of `idle | streaming | done | error` — style each
- * variant via `[data-status='streaming']` etc.
+ * variant via `[data-status='streaming']` etc. Pass `labels` to translate or
+ * rename the user-facing text.
  */
-function Status(props: HTMLAttributes<HTMLSpanElement>) {
+function StatusLabel({ labels, ...props }: StatusLabelProps) {
   const store = useStore();
   useStoreVersion(store);
   const { status, error } = store;
   const text =
-    status === 'streaming'
-      ? 'streaming'
-      : status === 'done'
-        ? 'complete'
-        : status === 'error'
-          ? (error?.message ?? 'error')
-          : 'idle';
+    status === 'error'
+      ? (labels?.error ?? error?.message ?? DEFAULT_STATUS_LABELS.error)
+      : (labels?.[status] ?? DEFAULT_STATUS_LABELS[status]);
   return (
     <span data-status={status} {...props}>
       {text}
@@ -600,6 +611,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       isFocused,
       hasFocus: isFocused && hasFocusWithin,
       focus: () => moveFocus(node.id),
+      syncFocus: () => store.setFocused(node.id),
       lineId: `${instanceId}-line-${node.id}`,
     };
   };
@@ -702,6 +714,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       isFocused: entry.id === effectiveFocusedId,
       hasFocus: entry.id === effectiveFocusedId && hasFocusWithin,
       focus: () => moveFocus(entry.id),
+      syncFocus: () => store.setFocused(entry.id),
       lineId: `${instanceId}-line-${entry.id}`,
     };
 
@@ -800,5 +813,5 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   );
 });
 
-export { Root, Bytes, Status, Viewport, Body, Group };
+export { Root, Bytes, StatusLabel, Viewport, Body, Group };
 export { Line, Trigger, LineContent } from './Line';

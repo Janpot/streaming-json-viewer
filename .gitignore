@@ -8,3 +8,11 @@ dist
 !.env.example
 coverage
 *.tsbuildinfo
+
+# Vitest browser-mode screenshots: baselines are committed, everything else
+# (failure captures, diffs, raw attachments) is ignored.
+**/__screenshots__/**/*.png
+!**/__screenshots__/**/*-chromium-*.png
+!**/__screenshots__/**/*-firefox-*.png
+!**/__screenshots__/**/*-webkit-*.png
+.vitest-attachments/

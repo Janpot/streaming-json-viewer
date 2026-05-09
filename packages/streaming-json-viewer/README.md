@@ -75,7 +75,6 @@ Row wrapper. Owns row positioning (the library applies `position`/`top`/`left`/`
 
 | Attribute          | Value                                                                |
 | ------------------ | -------------------------------------------------------------------- |
-| `data-kind`        | `"open"` or `"close"`                                                |
 | `data-type`        | `"object" \| "array" \| "string" \| "number" \| "boolean" \| "null"` |
 | `data-collapsed`   | present when a container is collapsed                                |
 | `data-empty`       | present when a container has no children                             |
