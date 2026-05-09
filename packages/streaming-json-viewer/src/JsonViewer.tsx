@@ -270,6 +270,13 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   const { nodes, totalLines, focusedId, status } = store;
   const instanceId = useInstanceId();
   const shouldFocusDomRef = useRef(false);
+  // The focused row's DOM element from the previous commit, plus whether it
+  // owned DOM focus then. If a later commit observes that element disconnected
+  // from the document, the row was unmounted by React (virtualization eviction
+  // or a re-key into a different parent) — restore focus to whatever element
+  // currently represents the focused row.
+  const prevFocusedElRef = useRef<Element | null>(null);
+  const prevFocusedElHadFocusRef = useRef(false);
   const [hasFocusWithin, setHasFocusWithin] = useState(false);
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -616,25 +623,16 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     };
   };
 
-  // Bucket visible rows by deepest enclosing wrapper. Wrapper opens are
-  // skipped — each wrapper renders its own sticky open. A wrapper "owns"
-  // [lineIdx, lineIdx + subtreeLines - 1) — its open + middle, but NOT its
-  // close. The close-row goes to the parent's bucket (or spacerBucket for the
-  // root) so the close visually pushes the sticky open up, one row apart.
-  const buckets: VisibleEntry[][] = wrapperChain.map(() => []);
-  const spacerBucket: VisibleEntry[] = [];
+  // All visible non-wrapper rows render as direct children of the spacer.
+  // Wrapper opens are skipped — each wrapper renders its own sticky open.
+  // Keeping every regular row in a single, stable parent means React reuses
+  // the same DOM node across scroll-induced wrapper-chain changes, so the
+  // focused row never re-mounts (and its focus / :focus-visible state stays
+  // intact while scrolling).
+  const flatRows: VisibleEntry[] = [];
   for (const item of visibleLines) {
     if (item.line.kind === 'open' && wrapperIds.has(item.line.id)) continue;
-    let assigned = false;
-    for (let k = wrapperChain.length - 1; k >= 0; k--) {
-      const w = wrapperChain[k]!;
-      if (item.idx >= w.lineIdx && item.idx < w.lineIdx + w.subtreeLines - 1) {
-        buckets[k]!.push(item);
-        assigned = true;
-        break;
-      }
-    }
-    if (!assigned) spacerBucket.push(item);
+    flatRows.push(item);
   }
 
   // translateY shifts content from doc-pixel coords into the capped-spacer
@@ -673,7 +671,6 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     const node = nodes[entry.id];
     if (!node) return null;
     const parent = node.parentId >= 0 ? nodes[node.parentId]! : null;
-    const bucket = buckets[level]!;
     const nested = wrapperChain[level + 1];
 
     // Wrapper top is static in spacer-DOM coords. The depth*RH*delta term
@@ -733,34 +730,57 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
         }}
       >
         <LineContext.Provider value={stickyOpenCtx}>{renderRow()}</LineContext.Provider>
-        {bucket.map((it) =>
-          renderAbsRow(it, Math.round(it.idx * ROW_HEIGHT + translateY - topAbs)),
-        )}
         {nested ? renderWrapper(level + 1) : null}
       </div>
     );
   };
 
   const spacerChildren: ReactNode[] = [];
-  for (const it of spacerBucket) {
-    spacerChildren.push(renderAbsRow(it, Math.round(it.idx * ROW_HEIGHT + translateY)));
-  }
+  // Wrappers first so regular rows (later in document order, no z-index)
+  // paint above the wrapper background. Each wrapper's sticky open has
+  // zIndex>=100 so it paints above the rows.
   if (wrapperChain.length > 0) {
     spacerChildren.push(renderWrapper(0));
   }
+  for (const it of flatRows) {
+    spacerChildren.push(renderAbsRow(it, Math.round(it.idx * ROW_HEIGHT + translateY)));
+  }
 
-  // After a render where focusedId was changed by user interaction (click,
-  // keyboard, onFocus) — OR a render where the DOM element for the same
-  // focusedId got remounted (e.g., a wrapper collapse re-renders the row
-  // from a sticky position to an absolute one) — restore DOM focus to the
-  // matching row. Runs on every commit, guarded by `shouldFocusDomRef` so
-  // background notifies (streaming) never steal focus.
+  // Restore DOM focus to the focused row after commits where:
+  //  - user interaction (click, keyboard, collapse toggle) set
+  //    `shouldFocusDomRef` so the new row gets focus,
+  //  - or React unmounted the focused row from under us (virtualization
+  //    eviction, or a re-key from a parent change) — detected by checking
+  //    whether the previous commit's focused element is still in the DOM.
+  // Runs on every commit; the `shouldFocusDomRef` guard keeps background
+  // notifies (streaming) from stealing focus.
   useLayoutEffect(() => {
-    if (focusedId === null) return;
-    if (!shouldFocusDomRef.current) return;
-    shouldFocusDomRef.current = false;
+    if (focusedId === null) {
+      prevFocusedElRef.current = null;
+      prevFocusedElHadFocusRef.current = false;
+      return;
+    }
     const el = document.getElementById(`${instanceId}-line-${focusedId}`);
-    if (el && el !== document.activeElement) el.focus({ preventScroll: true });
+    const prevEl = prevFocusedElRef.current;
+
+    // React removed the previously focused element. Browser dropped focus to
+    // body; we want to restore focus when a new element is available.
+    if (prevEl && prevEl !== el && !prevEl.isConnected && prevFocusedElHadFocusRef.current) {
+      shouldFocusDomRef.current = true;
+    }
+
+    if (shouldFocusDomRef.current && el) {
+      const active = document.activeElement;
+      // Don't steal focus if the user moved it to an element outside the
+      // viewer (e.g. clicked a button) while the row was offscreen.
+      const focusOutside =
+        active && active !== document.body && !viewportRef.current?.contains(active);
+      shouldFocusDomRef.current = false;
+      if (!focusOutside && el !== active) el.focus({ preventScroll: true });
+    }
+
+    prevFocusedElRef.current = el;
+    prevFocusedElHadFocusRef.current = el !== null && el === document.activeElement;
   });
 
   const mainContent: ReactNode = (
