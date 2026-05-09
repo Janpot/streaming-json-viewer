@@ -395,6 +395,11 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     switch (e.key) {
       case 'ArrowDown': {
         e.preventDefault();
+        if (e.metaKey) {
+          const last = lastOpenLine(nodes);
+          if (last) moveFocus(last.id);
+          return;
+        }
         const next = focusedId === null ? startCursor : nextOpenLine(nodes, startCursor);
         if (next) moveFocus(next.id);
         return;
