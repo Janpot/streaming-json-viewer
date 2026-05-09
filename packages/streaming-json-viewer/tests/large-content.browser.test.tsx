@@ -135,13 +135,12 @@ describe('large content (factor > 1)', () => {
     await userEvent.wheel(viewport, { delta: { y: 1e9 } });
     await settle();
 
-    // Identify the expected last row via ARIA. The root array contains
-    // NESTED_COUNT siblings at aria-level=2; the last is at aria-posinset
-    // === NESTED_COUNT. Without coupling to text content, this verifies
-    // the renderer actually emitted the last item near the bottom of the
-    // visible band.
+    // Identify the expected last row via ARIA. The fixture is
+    // `{"items": [...]}`, so root is depth 0, `"items"` array is depth 1,
+    // and each item sits at depth 2 (aria-level=3). The last item is at
+    // aria-posinset === NESTED_COUNT.
     const lastItem = viewport.querySelector<HTMLElement>(
-      `[role="treeitem"][aria-level="2"][aria-posinset="${NESTED_COUNT}"]`,
+      `[role="treeitem"][aria-level="3"][aria-posinset="${NESTED_COUNT}"]`,
     );
     expect(lastItem, 'last array item should be rendered at scroll bottom').not.toBeNull();
 
