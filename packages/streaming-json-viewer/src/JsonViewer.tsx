@@ -22,11 +22,9 @@ import { createParser } from './parser';
 import {
   createTreeBuilder,
   firstOpenLine,
-  getLineAt,
   getNodeLineIdx,
   getRenderDepth,
   lastOpenLine,
-  nextLine,
   nextOpenLine,
   prevOpenLine,
 } from './tree';
@@ -224,18 +222,6 @@ function findBodyRenderer(children: ReactNode): (() => ReactNode) | null {
   return found;
 }
 
-interface WrapperEntry {
-  id: number;
-  depth: number;
-  lineIdx: number;
-  subtreeLines: number;
-}
-
-interface VisibleEntry {
-  line: LineCursor;
-  idx: number;
-}
-
 export type ViewportProps = HTMLAttributes<HTMLDivElement> & { children?: ReactNode };
 
 const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
@@ -355,8 +341,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       const visibleBottom = docScrollTop + containerHeight;
       let targetDoc = -1;
       if (lineTop < visibleTop) targetDoc = Math.max(0, lineTop - stickyGutter);
-      else if (lineBottom > visibleBottom)
-        targetDoc = Math.max(0, lineBottom - containerHeight);
+      else if (lineBottom > visibleBottom) targetDoc = Math.max(0, lineBottom - containerHeight);
       if (targetDoc < 0) return;
       const nextScrollTop = factor === 1 ? targetDoc : Math.round(targetDoc / factor);
       const nextLocal = factor === 1 ? 0 : targetDoc - nextScrollTop * factor;
@@ -389,8 +374,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
         : firstOpenLine(nodes);
     if (!startCursor) return;
     const node = nodes[startCursor.id]!;
-    const c =
-      node.type === 'object' || node.type === 'array' ? (node as ContainerNode) : null;
+    const c = node.type === 'object' || node.type === 'array' ? (node as ContainerNode) : null;
 
     switch (e.key) {
       case 'ArrowDown': {
@@ -511,9 +495,15 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     Math.ceil((docScrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN,
   );
 
+  // translateY shifts content from doc-pixel coords into the capped-spacer
+  // coord system. Zero when factor==1; equals scrollTop - docScrollTop in
+  // pixel-cap mode so outermost positions land at the right viewport y.
+  const translateY = scrollTop - docScrollTop;
+
   // Walk root → deepest non-transparent ancestor whose body covers the
-  // viewport. Each entry becomes a wrapper div with a position:sticky open.
-  const wrapperChain: WrapperEntry[] = [];
+  // viewport. Used to mark `data-sticky` on currently-pinned wrappers and
+  // to identify the deepest pinned ancestor for `data-sticky-last`.
+  const pinnedChainIds: number[] = [];
   if (nodes.length > 0) {
     let curId = 0;
     let curOpen = 0;
@@ -524,14 +514,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       const cc = cur as ContainerNode;
       if (cc.collapsed || cc.childIds.length === 0) break;
       const transparent = cc.transparent === true;
-      if (!transparent) {
-        wrapperChain.push({
-          id: curId,
-          depth,
-          lineIdx: curOpen,
-          subtreeLines: cc.subtreeLines,
-        });
-      }
+      if (!transparent) pinnedChainIds.push(curId);
       const nextDepth = transparent ? depth : depth + 1;
       const targetY = docScrollTop + nextDepth * ROW_HEIGHT;
       let childOpen = transparent ? curOpen : curOpen + 1;
@@ -553,203 +536,221 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       depth = nextDepth;
     }
   }
-  const wrapperIds = new Set(wrapperChain.map((w) => w.id));
-
-  // Deepest level that is currently pinned — used to mark the bottom of the
-  // stacked sticky group (e.g. for a drop shadow under it).
-  let lastPinnedLevel = -1;
-  for (let i = 0; i < wrapperChain.length; i++) {
-    const e = wrapperChain[i]!;
-    if (e.lineIdx * ROW_HEIGHT < docScrollTop + e.depth * ROW_HEIGHT) lastPinnedLevel = i;
-  }
-
-  const visibleLines: VisibleEntry[] = [];
-  if (totalLines > 0) {
-    const first = getLineAt(startIdx, nodes);
-    if (first) {
-      let line: LineCursor | null = first.line;
-      let i = startIdx;
-      while (line && i < endIdx) {
-        visibleLines.push({ line, idx: i });
-        line = nextLine(nodes, line);
-        i += 1;
-      }
-    }
-  }
+  const pinnedSet = new Set(pinnedChainIds);
+  const deepestPinnedId =
+    pinnedChainIds.length > 0 ? pinnedChainIds[pinnedChainIds.length - 1]! : -1;
 
   // Determine which row should carry tabIndex=0. Roving tabindex pattern: only
-  // one tab stop in the tree. If `focusedId` points to a rendered open row,
-  // that row owns the tab stop. Otherwise (focus offscreen, focus null, or
-  // focus on a collapsed branch) fall back to the first rendered open row so
-  // Tab can still enter the tree.
-  const renderedOpenIds = new Set<number>();
-  for (const w of wrapperChain) renderedOpenIds.add(w.id);
-  for (const it of visibleLines) {
-    if (it.line.kind === 'open' && !wrapperIds.has(it.line.id)) {
-      renderedOpenIds.add(it.line.id);
-    }
-  }
+  // one tab stop in the tree. If `focusedId` points to a row that's rendered
+  // (in the visible window OR sticky-pinned as an ancestor), that row owns the
+  // tab stop. Otherwise fall back to the first pinned ancestor, then to the
+  // first open line in the tree.
   let effectiveFocusedId: number | null = null;
-  if (focusedId !== null && renderedOpenIds.has(focusedId)) {
-    effectiveFocusedId = focusedId;
-  } else if (wrapperChain.length > 0) {
-    effectiveFocusedId = wrapperChain[0]!.id;
-  } else {
-    for (const it of visibleLines) {
-      if (it.line.kind === 'open' && !wrapperIds.has(it.line.id)) {
-        effectiveFocusedId = it.line.id;
-        break;
-      }
+  if (focusedId !== null) {
+    const focusedLineIdx = getNodeLineIdx(nodes, focusedId);
+    const focusedRendered =
+      pinnedSet.has(focusedId) ||
+      (focusedLineIdx !== null && focusedLineIdx >= startIdx && focusedLineIdx < endIdx);
+    if (focusedRendered) effectiveFocusedId = focusedId;
+  }
+  if (effectiveFocusedId === null) {
+    if (pinnedChainIds.length > 0) {
+      effectiveFocusedId = pinnedChainIds[0]!;
+    } else {
+      const first = firstOpenLine(nodes);
+      if (first) effectiveFocusedId = first.id;
     }
   }
 
-  type CtxExtras = Pick<
-    LineContextValue,
-    'isSticky' | 'isStickyLast' | 'position' | 'top' | 'height' | 'zIndex' | 'toggle'
-  >;
-  const buildLineCtx = (entry: VisibleEntry, extras: CtxExtras): LineContextValue | null => {
-    const node = nodes[entry.line.id];
+  // Wrappers use delta-compensated positions in spacer-DOM coords so they
+  // stay bounded by the spacer (which is capped at SAFE_MAX_SPACER_HEIGHT).
+  // Without this, in factor>1 mode the outermost wrapper's top would be a
+  // huge negative number (= translateY) and its height would be the full
+  // uncompressed document height — both blow past browser element-coord
+  // limits (Firefox ~17M, Chrome ~33M) and the wrapper fails to lay out.
+  // The depth*RH*delta term shifts wrappers so CSS sticky's `top: depth*RH`
+  // pin/pushup transitions still fire at the correct doc moments.
+  // In factor==1 mode delta=0 and these formulas reduce to lineIdx*RH /
+  // (subtree-1)*RH respectively — i.e. uncompressed natural positions.
+  const delta = (factor - 1) / factor;
+  const wrapperTopAbsFn = (lineIdx: number, depth: number) =>
+    (lineIdx * ROW_HEIGHT) / factor + depth * ROW_HEIGHT * delta;
+  const wrapperHeightFn = (subtree: number) =>
+    ((subtree - 1) * ROW_HEIGHT) / factor + ROW_HEIGHT * delta;
+
+  // Recursive render — every container becomes a wrapper containing its
+  // sticky open, visible interior children, and an absolute close row.
+  // Wrapper positions are compressed (delta-compensated); rows inside a
+  // wrapper compute their `top` dynamically against the wrapper's spacer y
+  // (`row K spacer y = K*RH + translateY` in flat-row terms; subtract
+  // wrapperTopAbs to get the row's `top` relative to its wrapper).
+  // In factor==1 the dynamic formula reduces to a static `(K - L) * RH`.
+  //
+  // KNOWN ISSUE (see EXPERIMENT_NOTES.md): in factor>1 mode with deeply
+  // nested chains (4+ sticky levels, e.g. the docs 15MB demo), nested
+  // wrappers' compressed positions interact with CSS sticky in ways that
+  // produce visual artifacts (sticky opens layering at the same depth slot
+  // for sibling wrappers). The simple fixtures don't expose this; the
+  // demo-mirror fixture does.
+  const renderNode = (
+    id: number,
+    lineIdx: number,
+    depth: number,
+    parentTopAbs: number,
+    isOutermost: boolean,
+  ): ReactNode => {
+    const node = nodes[id];
     if (!node) return null;
+    const subtree = node.subtreeLines;
+    if (lineIdx + subtree <= startIdx || lineIdx >= endIdx) return null;
+
+    const isContainer = node.type === 'object' || node.type === 'array';
+    const c = isContainer ? (node as ContainerNode) : null;
+    const isExpanded = c !== null && !c.collapsed && c.childIds.length > 0;
+    const isTransparent = c?.transparent === true;
     const parent = node.parentId >= 0 ? nodes[node.parentId]! : null;
-    const isOpen = entry.line.kind === 'open';
-    const isFocused = isOpen && entry.line.id === effectiveFocusedId;
-    return {
+
+    // Transparent: pass through children with the same depth and parent
+    // context (the transparent container has no own open/close rows).
+    if (isExpanded && isTransparent) {
+      const out: ReactNode[] = [];
+      let cursor = lineIdx;
+      for (const cid of c!.childIds) {
+        const child = nodes[cid]!;
+        const r = renderNode(cid, cursor, depth, parentTopAbs, isOutermost);
+        if (r != null) out.push(r);
+        cursor += child.subtreeLines;
+      }
+      return out.length > 0 ? <>{out}</> : null;
+    }
+
+    if (isExpanded) {
+      const selfTopAbs = wrapperTopAbsFn(lineIdx, depth);
+      const wrapperHeight = wrapperHeightFn(subtree);
+      const closeLineIdx = lineIdx + subtree - 1;
+      const pinned = pinnedSet.has(id);
+
+      const stickyOpenCtx: LineContextValue = {
+        node,
+        parent,
+        kind: 'open',
+        depth,
+        lineIdx,
+        isSticky: pinned,
+        isStickyLast: id === deepestPinnedId,
+        position: 'sticky',
+        top: depth * ROW_HEIGHT,
+        height: ROW_HEIGHT,
+        zIndex: 100 - depth,
+        toggle: pinned
+          ? () => handleStickyToggle(id, lineIdx, depth)
+          : () => store.toggleCollapse(id),
+        isFocused: id === effectiveFocusedId,
+        hasFocus: id === effectiveFocusedId && hasFocusWithin,
+        focus: () => moveFocus(id),
+        syncFocus: () => store.setFocused(id),
+        lineId: `${instanceId}-line-${id}`,
+      };
+
+      const interior: ReactNode[] = [];
+      let cursor = lineIdx + 1;
+      for (const cid of c!.childIds) {
+        const child = nodes[cid]!;
+        const r = renderNode(cid, cursor, depth + 1, selfTopAbs, false);
+        if (r != null) interior.push(r);
+        cursor += child.subtreeLines;
+      }
+
+      let closeNode: ReactNode = null;
+      if (closeLineIdx >= startIdx && closeLineIdx < endIdx) {
+        // Close `top` relative to wrapper. Equals (subtree - 1)*RH when
+        // factor==1; in factor>1 mode it's scroll-dependent so the close
+        // tracks its true doc-coord position.
+        const closeTop = Math.round(closeLineIdx * ROW_HEIGHT + translateY - selfTopAbs);
+        const closeCtx: LineContextValue = {
+          node,
+          parent,
+          kind: 'close',
+          depth,
+          lineIdx: closeLineIdx,
+          isSticky: false,
+          isStickyLast: false,
+          position: 'absolute',
+          top: closeTop,
+          height: ROW_HEIGHT,
+          toggle: () => store.toggleCollapse(id),
+          isFocused: false,
+          hasFocus: false,
+          focus: () => moveFocus(id),
+          syncFocus: () => store.setFocused(id),
+          lineId: `${instanceId}-line-${id}`,
+        };
+        closeNode = (
+          <LineContext.Provider key={`${id}-close`} value={closeCtx}>
+            {renderRow()}
+          </LineContext.Provider>
+        );
+      }
+
+      const wrapperTop = isOutermost
+        ? Math.round(selfTopAbs)
+        : Math.round(selfTopAbs - parentTopAbs);
+
+      return (
+        <div
+          {...groupProps}
+          key={`w-${id}`}
+          data-depth={depth}
+          style={{
+            ...(groupProps.style ?? {}),
+            position: 'absolute',
+            top: wrapperTop,
+            left: 0,
+            right: 0,
+            height: wrapperHeight,
+          }}
+        >
+          <LineContext.Provider value={stickyOpenCtx}>{renderRow()}</LineContext.Provider>
+          {interior}
+          {closeNode}
+        </div>
+      );
+    }
+
+    // Single-row node: primitive, empty container, or collapsed container.
+    if (lineIdx < startIdx || lineIdx >= endIdx) return null;
+    // Outermost: position in spacer coords directly. Otherwise: relative to
+    // parent wrapper's spacer y. Both reduce to flat-row coords because
+    // `K*RH + translateY` is the row's spacer y in either case.
+    const rowTop = isOutermost
+      ? Math.round(lineIdx * ROW_HEIGHT + translateY)
+      : Math.round(lineIdx * ROW_HEIGHT + translateY - parentTopAbs);
+    const rowCtx: LineContextValue = {
       node,
       parent,
-      kind: entry.line.kind,
-      depth: entry.line.depth,
-      lineIdx: entry.idx,
-      ...extras,
-      isFocused,
-      hasFocus: isFocused && hasFocusWithin,
-      focus: () => moveFocus(node.id),
-      syncFocus: () => store.setFocused(node.id),
-      lineId: `${instanceId}-line-${node.id}`,
-    };
-  };
-
-  // All visible non-wrapper rows render as direct children of the spacer.
-  // Wrapper opens are skipped — each wrapper renders its own sticky open.
-  // Keeping every regular row in a single, stable parent means React reuses
-  // the same DOM node across scroll-induced wrapper-chain changes, so the
-  // focused row never re-mounts (and its focus / :focus-visible state stays
-  // intact while scrolling).
-  const flatRows: VisibleEntry[] = [];
-  for (const item of visibleLines) {
-    if (item.line.kind === 'open' && wrapperIds.has(item.line.id)) continue;
-    flatRows.push(item);
-  }
-
-  // translateY shifts content from doc-pixel coords into the capped-spacer
-  // coord system. Zero when factor==1; equals scrollTop - docScrollTop in
-  // pixel-cap mode so absolute positions land at the right viewport y.
-  const translateY = scrollTop - docScrollTop;
-
-  const renderAbsRow = (entry: VisibleEntry, top: number): ReactNode => {
-    const node = nodes[entry.line.id];
-    if (!node) return null;
-    const ctx = buildLineCtx(entry, {
+      kind: 'open',
+      depth,
+      lineIdx,
       isSticky: false,
       isStickyLast: false,
       position: 'absolute',
-      top,
+      top: rowTop,
       height: ROW_HEIGHT,
-      toggle: () => store.toggleCollapse(node.id),
-    });
-    if (!ctx) return null;
+      toggle: c ? () => store.toggleCollapse(id) : () => {},
+      isFocused: id === effectiveFocusedId,
+      hasFocus: id === effectiveFocusedId && hasFocusWithin,
+      focus: () => moveFocus(id),
+      syncFocus: () => store.setFocused(id),
+      lineId: `${instanceId}-line-${id}`,
+    };
     return (
-      <LineContext.Provider key={`${entry.line.id}-${entry.line.kind}-${entry.idx}`} value={ctx}>
+      <LineContext.Provider key={`r-${id}`} value={rowCtx}>
         {renderRow()}
       </LineContext.Provider>
     );
   };
 
-  // Per-wrapper offset that compensates for the factor>1 compression so CSS
-  // sticky's pin/push transitions land at the exact doc moment they would in
-  // factor==1. Zero when factor==1 (delta = 0).
-  const delta = (factor - 1) / factor;
-  const wrapperTopAbs = (entry: WrapperEntry) =>
-    (entry.lineIdx * ROW_HEIGHT) / factor + entry.depth * ROW_HEIGHT * delta;
-
-  const renderWrapper = (level: number): ReactNode => {
-    const entry = wrapperChain[level]!;
-    const node = nodes[entry.id];
-    if (!node) return null;
-    const parent = node.parentId >= 0 ? nodes[node.parentId]! : null;
-    const nested = wrapperChain[level + 1];
-
-    // Wrapper top is static in spacer-DOM coords. The depth*RH*delta term
-    // shifts the wrapper down so that, after CSS sticky's `top: depth*RH`
-    // offset, the pin/pushup transitions match the doc-coord moments they
-    // would in factor==1 mode (no early pin, no early pushup).
-    const topAbs = wrapperTopAbs(entry);
-    const wrapperTop =
-      level === 0
-        ? Math.round(topAbs)
-        : Math.round(topAbs - wrapperTopAbs(wrapperChain[level - 1]!));
-    // Adding RH*delta keeps the wrapper bottom aligned with the close-row's
-    // scroll-coord position, so sticky pushup fires exactly at the close.
-    const wrapperHeight = ((entry.subtreeLines - 1) * ROW_HEIGHT) / factor + ROW_HEIGHT * delta;
-
-    // CSS sticky: pin at depth*ROW_HEIGHT relative to the scroll container.
-    // The wrapper's height is the range the sticky stays pinned over; when
-    // the wrapper bottom approaches, sticky gets pushed up automatically.
-    const pinned = entry.lineIdx * ROW_HEIGHT < docScrollTop + entry.depth * ROW_HEIGHT;
-
-    // Outer wrappers paint above inner ones so the inner sticky slides under
-    // the outer when its close pushes it up.
-    const stickyOpenCtx: LineContextValue = {
-      node,
-      parent,
-      kind: 'open',
-      depth: entry.depth,
-      lineIdx: entry.lineIdx,
-      isSticky: pinned,
-      isStickyLast: pinned && level === lastPinnedLevel,
-      position: 'sticky',
-      top: entry.depth * ROW_HEIGHT,
-      height: ROW_HEIGHT,
-      zIndex: 100 - level,
-      toggle: pinned
-        ? () => handleStickyToggle(entry.id, entry.lineIdx, level)
-        : () => store.toggleCollapse(entry.id),
-      isFocused: entry.id === effectiveFocusedId,
-      hasFocus: entry.id === effectiveFocusedId && hasFocusWithin,
-      focus: () => moveFocus(entry.id),
-      syncFocus: () => store.setFocused(entry.id),
-      lineId: `${instanceId}-line-${entry.id}`,
-    };
-
-    return (
-      <div
-        {...groupProps}
-        key={`w-${entry.id}`}
-        data-depth={level}
-        style={{
-          ...(groupProps.style ?? {}),
-          position: 'absolute',
-          top: wrapperTop,
-          left: 0,
-          right: 0,
-          height: wrapperHeight,
-        }}
-      >
-        <LineContext.Provider value={stickyOpenCtx}>{renderRow()}</LineContext.Provider>
-        {nested ? renderWrapper(level + 1) : null}
-      </div>
-    );
-  };
-
-  const spacerChildren: ReactNode[] = [];
-  // Wrappers first so regular rows (later in document order, no z-index)
-  // paint above the wrapper background. Each wrapper's sticky open has
-  // zIndex>=100 so it paints above the rows.
-  if (wrapperChain.length > 0) {
-    spacerChildren.push(renderWrapper(0));
-  }
-  for (const it of flatRows) {
-    spacerChildren.push(renderAbsRow(it, Math.round(it.idx * ROW_HEIGHT + translateY)));
-  }
+  const spacerChildren: ReactNode = nodes.length > 0 ? renderNode(0, 0, 0, 0, true) : null;
 
   // Restore DOM focus to the focused row after commits where:
   //  - user interaction (click, keyboard, collapse toggle) set
@@ -789,9 +790,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   });
 
   const mainContent: ReactNode = (
-    <div style={{ height: spacerHeight, position: 'relative' }}>
-      {spacerChildren}
-    </div>
+    <div style={{ height: spacerHeight, position: 'relative' }}>{spacerChildren}</div>
   );
 
   const mergedStyle: CSSProperties = {
