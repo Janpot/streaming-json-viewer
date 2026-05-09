@@ -2,7 +2,11 @@ import { describe, expect, test } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { userEvent } from 'vitest/browser';
 import { TestViewer } from './helpers/TestViewer';
-import { makeHugeJsonlFixture, makeSingleHugeArrayFixture } from './helpers/fixtures';
+import {
+  makeHugeArrayOfObjectsFixture,
+  makeHugeJsonlFixture,
+  makeSingleHugeArrayFixture,
+} from './helpers/fixtures';
 import { focusedRow, tabIntoTree } from './helpers/focus';
 import { settle } from './helpers/raf';
 import { waitForStatus } from './helpers/wait';
@@ -109,4 +113,57 @@ describe('large content (factor > 1)', () => {
       .element(screen.getByTestId('tv-viewport'))
       .toMatchScreenshot('single-huge-array-mid');
   }, 60_000);
+
+  test('single-container fixture renders the last item when wheeled to the bottom', async () => {
+    // 600k three-line entries → 1.8M lines → fullHeight ≈ 39.6M px. The single
+    // root array's wrapper would have height ≈ 39.6M and (at max scroll) top
+    // ≈ −31.6M if positioned uncompressed — past the browser's element-coord
+    // limit (~33M in Chromium), causing the wrapper to fail to lay out and no
+    // rows to render. The renderer must keep wrapper positions bounded by the
+    // spacer cap. Equivalent to the docs 15MB demo failure mode.
+    const NESTED_COUNT = 600_000;
+    const screen = await render(
+      <TestViewer value={makeHugeArrayOfObjectsFixture(NESTED_COUNT)} />,
+    );
+    await waitForStatus('done', 60_000);
+    const viewport = screen.getByTestId('tv-viewport').element() as HTMLDivElement;
+
+    // Wheel to the bottom. The wheel handler in factor>1 mode advances
+    // docScrollTop by deltaY pixels and clamps to docRange, so a single
+    // very large wheel event lands at the absolute bottom — same code
+    // path the user exercises in the demo.
+    await userEvent.wheel(viewport, { delta: { y: 1e9 } });
+    await settle();
+
+    // Identify the expected last row via ARIA. The root array contains
+    // NESTED_COUNT siblings at aria-level=2; the last is at aria-posinset
+    // === NESTED_COUNT. Without coupling to text content, this verifies
+    // the renderer actually emitted the last item near the bottom of the
+    // visible band.
+    const lastItem = viewport.querySelector<HTMLElement>(
+      `[role="treeitem"][aria-level="2"][aria-posinset="${NESTED_COUNT}"]`,
+    );
+    expect(lastItem, 'last array item should be rendered at scroll bottom').not.toBeNull();
+
+    const vpRect = viewport.getBoundingClientRect();
+    const r = lastItem!.getBoundingClientRect();
+    expect(
+      r.bottom > vpRect.top && r.top < vpRect.bottom,
+      'last array item should overlap the viewport rect',
+    ).toBe(true);
+  }, 120_000);
+
+  test('screenshot — single-container fixture wheeled to the bottom', async () => {
+    const NESTED_COUNT = 600_000;
+    const screen = await render(
+      <TestViewer value={makeHugeArrayOfObjectsFixture(NESTED_COUNT)} />,
+    );
+    await waitForStatus('done', 60_000);
+    const viewport = screen.getByTestId('tv-viewport').element() as HTMLDivElement;
+    await userEvent.wheel(viewport, { delta: { y: 1e9 } });
+    await settle();
+    await expect
+      .element(screen.getByTestId('tv-viewport'))
+      .toMatchScreenshot('single-container-scroll-bottom');
+  }, 120_000);
 });

@@ -93,3 +93,17 @@ export function makeSingleHugeArrayFixture(count = 500_000): string {
   for (let i = 0; i < count; i++) parts[i] = String(i);
   return `[${parts.join(',')}]`;
 }
+
+/**
+ * Single root array containing many small object entries — three lines per
+ * entry (open / one key / close) gives a total line count whose uncompressed
+ * height (`totalLines × ROW_HEIGHT`) exceeds the browser's element-coord
+ * limit (~33M px in Chromium). Mirrors the docs 15MB demo: one outermost
+ * container with a huge subtree. Used to verify the renderer keeps wrapper
+ * positions bounded by the spacer in factor>1 mode.
+ */
+export function makeHugeArrayOfObjectsFixture(count = 600_000): string {
+  const parts = new Array<string>(count);
+  for (let i = 0; i < count; i++) parts[i] = `{"i":${i}}`;
+  return `[${parts.join(',')}]`;
+}
