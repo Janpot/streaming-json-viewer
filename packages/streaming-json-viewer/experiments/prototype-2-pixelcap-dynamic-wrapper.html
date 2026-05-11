@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pixel-cap prototype v2: dynamic wrappers via --ty</title>
+<style>
+  :root { --rh: 28px; --indent: 18px; }
+  * { box-sizing: border-box; }
+  body { font-family: ui-monospace, monospace; margin: 0; padding: 24px; background: #f7f7f7; color: #222; }
+  h1 { font-size: 17px; margin: 0 0 8px; }
+  h2 { font-size: 14px; margin: 16px 0 6px; }
+  p, li { font-size: 13px; line-height: 1.5; }
+  code { background: #eee; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+
+  .viewport {
+    width: 720px;
+    height: 280px;
+    overflow: auto;
+    border: 2px solid #555;
+    background: white;
+    position: relative;
+    contain: strict;
+    scrollbar-gutter: stable;
+  }
+
+  .spacer {
+    --ty: 0px;
+    position: relative;
+    width: 100%;
+    height: 840px;
+  }
+
+  /* Wrapper top is dynamic: row's true uncompressed position + scroll compensation */
+  .wrapper {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(var(--wrapper-base) + var(--ty));
+  }
+  .wrapper::before {
+    content: '';
+    position: absolute; inset: 0;
+    border-left: 2px solid hsla(220,40%,40%,0.12);
+    pointer-events: none;
+  }
+
+  .row {
+    height: var(--rh);
+    line-height: var(--rh);
+    font-size: 13px;
+    white-space: nowrap;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  .row.open  { background: hsl(210, 70%, 88%); font-weight: 600; }
+  .row.close { background: hsl(30,  70%, 88%); font-weight: 600; }
+  .row.prim  { background: white; }
+  .row.sticky    { position: sticky; box-shadow: 0 1px 0 rgba(0,0,0,0.04); }
+  .row.absolute  { position: absolute; left: 0; right: 0; }
+
+  .wrapper.depth-0 > .row.sticky { z-index: 100; }
+  .wrapper.depth-1 > .row.sticky { z-index: 99;  }
+
+  .indent-0 { padding-left: 10px; }
+  .indent-1 { padding-left: calc(1 * var(--indent) + 10px); }
+  .indent-2 { padding-left: calc(2 * var(--indent) + 10px); }
+
+  .badge { font-size: 10px; color: #888; margin-left: 6px; font-weight: normal; }
+
+  #readout {
+    position: fixed; right: 24px; top: 24px;
+    background: white; border: 1px solid #ccc; padding: 8px 12px;
+    font-size: 11px; line-height: 1.5; z-index: 1000;
+    border-radius: 4px;
+    font-family: ui-monospace, monospace;
+    min-width: 220px;
+  }
+  .meta {
+    padding: 8px 12px; background: #fafafa;
+    border-left: 3px solid #ccc;
+    margin: 8px 0 12px; font-size: 12px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Pixel-cap mode v2 — dynamic wrappers (no delta compensation)</h1>
+
+<div class="meta">
+Same setup: <code>factor=2</code>, <code>totalLines=50</code>, viewport=10 RH, spacer=30 RH, <code>translateY = −scrollTop</code>.
+<br><br>
+<strong>What changed from v1</strong>: wrappers no longer use delta-compensated static positions. Instead:
+<ul>
+  <li><code>wrapper top = calc(lineIdx*RH + var(--ty))</code> — wrapper translates with scroll, same as flat rows</li>
+  <li><code>wrapper height = (subtree − 1) × RH</code> — uncompressed</li>
+  <li>Interior rows: <code>top = (K − parentLineIdx) × RH</code> — static, simple</li>
+  <li>Close row: <code>top = wrapperHeight</code></li>
+</ul>
+The wrapper's pre-activation position now matches the line's true doc position, so the "B floats too high" issue should be gone.
+</div>
+
+<div class="viewport" id="vp">
+  <div class="spacer" id="spacer"></div>
+</div>
+
+<div id="readout"></div>
+
+<h2>What to verify</h2>
+<ol>
+  <li>B's <code>"b": [</code> open should arrive at its <em>natural</em> position from the bottom as you scroll, no longer floating in early.</li>
+  <li>It should pin at the depth-1 slot (under root) at the moment line 21 reaches viewport y=28 — i.e., docScrollTop ≈ 21*RH − 28 = 560, scrollTop ≈ 280.</li>
+  <li>All other behaviors from v1 should still work: A's pin/push-up, root's push-up at the end, smooth A→B handoff.</li>
+  <li>Interior rows should never appear at gappy or overlapping positions.</li>
+</ol>
+
+<script>
+const RH = 28;
+const FACTOR = 2;
+
+const ROOT = { id: 'root', lineIdx: 0, depth: 0, subtreeLines: 50 };
+const A    = { id: 'a',    lineIdx: 1, depth: 1, subtreeLines: 20 };
+const B    = { id: 'b',    lineIdx: 21, depth: 1, subtreeLines: 20 };
+
+function makeWrapper(entry) {
+  const div = document.createElement('div');
+  div.className = `wrapper depth-${entry.depth}`;
+  div.dataset.id = entry.id;
+  div.style.setProperty('--wrapper-base', `${entry.lineIdx * RH}px`);
+  div.style.height = `${(entry.subtreeLines - 1) * RH}px`;
+  return div;
+}
+
+function makeRow({ kind, lineIdx, label, indent, position, top }) {
+  const div = document.createElement('div');
+  const classes = ['row'];
+  if (kind === 'open') classes.push('open');
+  else if (kind === 'close') classes.push('close');
+  else classes.push('prim');
+  if (position === 'sticky') classes.push('sticky');
+  else classes.push('absolute');
+  classes.push(`indent-${indent}`);
+  div.className = classes.join(' ');
+  div.style.top = `${top}px`;
+  div.innerHTML = `${label} <span class="badge">line ${lineIdx}</span>`;
+  return div;
+}
+
+const spacer = document.getElementById('spacer');
+
+// Root wrapper
+const rootW = makeWrapper(ROOT);
+rootW.appendChild(makeRow({
+  kind: 'open', lineIdx: 0,
+  label: '{ <span class="badge">root open · sticky depth=0</span>',
+  indent: 0, position: 'sticky', top: 0,
+}));
+
+// Group A (child of root, top relative to root = (1 - 0)*RH = RH)
+const aW = makeWrapper(A);
+aW.style.removeProperty('top');
+aW.style.top = `${(A.lineIdx - ROOT.lineIdx) * RH}px`;  // STATIC inside parent wrapper
+aW.style.removeProperty('--wrapper-base');
+// Inside a wrapper, child wrapper's --wrapper-base needs to be relative to parent
+// But since parent wrapper itself uses --ty, the nested wrapper just uses static top.
+// Child wrapper's natural position (within parent wrapper) is its (lineIdx - parentLineIdx) * RH.
+aW.appendChild(makeRow({
+  kind: 'open', lineIdx: 1,
+  label: '"a": [ <span class="badge">A open · sticky depth=1</span>',
+  indent: 1, position: 'sticky', top: RH,
+}));
+for (let k = 2; k < 20; k++) {
+  aW.appendChild(makeRow({
+    kind: 'prim', lineIdx: k, label: `"alpha-${k}"`,
+    indent: 2, position: 'absolute', top: (k - A.lineIdx) * RH,
+  }));
+}
+aW.appendChild(makeRow({
+  kind: 'close', lineIdx: 20,
+  label: '] <span class="badge">A close · top = (subtree-1)*RH</span>',
+  indent: 1, position: 'absolute', top: (A.subtreeLines - 1) * RH,
+}));
+rootW.appendChild(aW);
+
+// Group B (child of root, top relative to root = (21 - 0)*RH = 21*RH)
+const bW = makeWrapper(B);
+bW.style.removeProperty('top');
+bW.style.top = `${(B.lineIdx - ROOT.lineIdx) * RH}px`;
+bW.style.removeProperty('--wrapper-base');
+bW.appendChild(makeRow({
+  kind: 'open', lineIdx: 21,
+  label: '"b": [ <span class="badge">B open · sticky depth=1</span>',
+  indent: 1, position: 'sticky', top: RH,
+}));
+for (let k = 22; k < 40; k++) {
+  bW.appendChild(makeRow({
+    kind: 'prim', lineIdx: k, label: `"bravo-${k}"`,
+    indent: 2, position: 'absolute', top: (k - B.lineIdx) * RH,
+  }));
+}
+bW.appendChild(makeRow({
+  kind: 'close', lineIdx: 40,
+  label: '] <span class="badge">B close</span>',
+  indent: 1, position: 'absolute', top: (B.subtreeLines - 1) * RH,
+}));
+rootW.appendChild(bW);
+
+// Root primitives lineIdx 41..48 — children of root wrapper, static top relative to root
+for (let k = 41; k < 49; k++) {
+  rootW.appendChild(makeRow({
+    kind: 'prim', lineIdx: k, label: `"root-prim-${k}"`,
+    indent: 1, position: 'absolute', top: (k - ROOT.lineIdx) * RH,
+  }));
+}
+
+// Root close at top: (subtree - 1) * RH
+rootW.appendChild(makeRow({
+  kind: 'close', lineIdx: 49,
+  label: '} <span class="badge">root close · top = (subtree-1)*RH</span>',
+  indent: 0, position: 'absolute', top: (ROOT.subtreeLines - 1) * RH,
+}));
+
+spacer.appendChild(rootW);
+
+const vp = document.getElementById('vp');
+const readout = document.getElementById('readout');
+
+function updateTy() {
+  const scrollTop = vp.scrollTop;
+  const docScrollTop = scrollTop * FACTOR;
+  const translateY = scrollTop - docScrollTop;
+  spacer.style.setProperty('--ty', `${translateY}px`);
+
+  const lineAtTop = (docScrollTop / RH).toFixed(2);
+  readout.innerHTML = `
+    <strong>scrollTop:</strong> ${scrollTop}px (compressed row ${(scrollTop/RH).toFixed(2)})<br>
+    <strong>docScrollTop:</strong> ${docScrollTop}px<br>
+    <strong>--ty:</strong> ${translateY}px<br>
+    <strong>line at viewport top:</strong> ${lineAtTop}<br>
+    <strong>factor:</strong> ${FACTOR}
+  `;
+}
+updateTy();
+vp.addEventListener('scroll', updateTy);
+</script>
+
+</body>
+</html>

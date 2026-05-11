@@ -119,10 +119,14 @@ Net: roughly the same line count. The wins were intended to be:
 
 ## What was prototyped before implementing
 
-Two CSS questions were verified in standalone HTML files (since deleted from
-`/tmp` — recreate from the descriptions below if needed):
+Two CSS questions were verified in standalone HTML files. **The prototypes
+are committed in [`experiments/`](experiments/)** — open them in a browser
+(`open packages/streaming-json-viewer/experiments/prototype-*.html`) to
+re-run the visual checks. The geometry math from each is summarized below.
 
 ### Prototype 1: close-row overflow trick
+
+File: [`experiments/prototype-1-close-row-overflow.html`](experiments/prototype-1-close-row-overflow.html)
 
 **Question**: in factor=1 mode, can the close row sit at `top: wrapperHeight`
 inside the wrapper (= the wrapper's bottom edge), painting via default
@@ -135,23 +139,33 @@ same timing as the production `wrapperHeight = (subtree - 1) * RH` formula.
 
 ### Prototype 2: pixel-cap dynamic-wrapper math
 
+File: [`experiments/prototype-2-pixelcap-dynamic-wrapper.html`](experiments/prototype-2-pixelcap-dynamic-wrapper.html)
+
 **Question**: in factor>1 mode, how to position wrappers so their interior
 rows can have static `top`?
 
-**Initial answer (incorrect)**: position the **outermost** wrapper at
-`lineIdx*RH + translateY` (uncompressed; the wrapper translates with the
-spacer's scroll), with `wrapperHeight = (subtree-1)*RH` (uncompressed).
-Interior rows then get static `(K - parentLineIdx) * RH`.
+**Initial answer (what the prototype demonstrates, INCORRECT at scale)**:
+position the **outermost** wrapper at `lineIdx*RH + translateY` (uncompressed;
+the wrapper translates with the spacer's scroll via a CSS variable `--ty`),
+with `wrapperHeight = (subtree-1)*RH` (uncompressed). Interior rows then get
+static `(K - parentLineIdx) * RH`. The prototype uses synthetic `factor=2` on
+50 lines so the values stay tiny and Chrome lays it out cleanly — that's why
+it looks like a clean simplification of the production math.
 
-**Why it fails on real data**: in factor>1 mode the outermost wrapper's
-`translateY` becomes hugely negative (e.g. -36M px for the 15MB demo) and
-the wrapper's uncompressed height exceeds Chromium's ~33M coord limit. The
-wrapper fails to lay out and nothing renders. Caught by the
-`single-container fixture renders the last item` test on this branch.
+**Why it fails on real data**: in factor>1 mode at scale, the outermost
+wrapper's `translateY` becomes hugely negative (e.g. −36M px for the 15MB
+demo) and the wrapper's uncompressed height exceeds Chromium's ~33M coord
+limit. The wrapper fails to lay out and nothing renders. The prototype hides
+this because its scale is too small to hit browser limits. Caught by the
+`single-container fixture renders the last item` test on this branch (the
+test bumps subtree size up to where the uncompressed wrapper height exceeds
+~33M).
 
-**Final answer**: revert wrappers to **delta-compensated** positions (so they
-always fit in the spacer), and make interior rows use **dynamic** `top`
-(`K*RH + translateY - parentTopAbs`). This is what's on the branch now.
+**Final answer (what's in the branch's code)**: revert wrappers to
+**delta-compensated** positions (so they always fit in the spacer), and make
+interior rows use **dynamic** `top` (`K*RH + translateY - parentTopAbs`). The
+prototype's clean "no delta" math was a red herring — it only works at
+prototype scale, not at real-document scale.
 
 ## What works
 
@@ -257,6 +271,9 @@ packages/streaming-json-viewer/
 ├── src/JsonViewer.tsx                  # the refactor
 ├── EXPERIMENT_NOTES.md                 # this file
 ├── experiments/
+│   ├── original-plan.md                # design memo written before implementing
+│   ├── prototype-1-close-row-overflow.html        # open in browser to re-verify
+│   ├── prototype-2-pixelcap-dynamic-wrapper.html  # ditto (note: at prototype scale only)
 │   ├── demo-mirror-OLD-correct.png     # main's render of the demo-mirror
 │   └── demo-mirror-NEW-broken.png      # this branch's render
 └── tests/
@@ -267,6 +284,13 @@ packages/streaming-json-viewer/
             ├── demo-mirror-scroll-bottom-chromium-darwin.png         # CURRENT: broken render baseline (this branch)
             └── single-container-scroll-bottom-chromium-darwin.png    # both branches render identically
 ```
+
+The `original-plan.md` in `experiments/` is the design memo I wrote before
+starting implementation — it captures the initial intent and the
+trade-offs I anticipated (some of which turned out to be wrong, notably the
+"pixel-cap math gets simpler" claim that prototype 2 misled me into
+making). Useful for understanding what hypotheses were in play; don't take
+its conclusions as final — they're superseded by this file.
 
 ## Tests added (worth keeping in any case)
 
