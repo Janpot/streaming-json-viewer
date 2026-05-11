@@ -630,6 +630,12 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       const closeLineIdx = lineIdx + subtree - 1;
       const pinned = pinnedSet.has(id);
 
+      // Only chain-pinned wrappers get position:sticky opens. Non-chain
+      // wrappers' opens are absolute at their true doc-coord viewport y —
+      // otherwise sibling wrappers' compressed bounds (which overlap by
+      // RH*(factor-2)/factor in factor>1 mode) cause CSS sticky to pin
+      // multiple opens at the same depth slot, painting on top of each other.
+      const openTopAbsolute = Math.round(lineIdx * ROW_HEIGHT + translateY - selfTopAbs);
       const stickyOpenCtx: LineContextValue = {
         node,
         parent,
@@ -638,10 +644,10 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
         lineIdx,
         isSticky: pinned,
         isStickyLast: id === deepestPinnedId,
-        position: 'sticky',
-        top: depth * ROW_HEIGHT,
+        position: pinned ? 'sticky' : 'absolute',
+        top: pinned ? depth * ROW_HEIGHT : openTopAbsolute,
         height: ROW_HEIGHT,
-        zIndex: 100 - depth,
+        zIndex: pinned ? 100 - depth : undefined,
         toggle: pinned
           ? () => handleStickyToggle(id, lineIdx, depth)
           : () => store.toggleCollapse(id),
