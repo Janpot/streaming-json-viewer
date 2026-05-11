@@ -167,6 +167,25 @@ describe('large content (factor > 1)', () => {
       .toMatchScreenshot('single-container-scroll-bottom');
   }, 120_000);
 
+  test('schema (small sibling above items) is clickable despite wrapper overlap', async () => {
+    // factor>1 mode: the items wrapper's compressed bounds extend upward into
+    // schema's row range. Without pointer-events:none on wrappers + auto on
+    // rows, the items wrapper would intercept clicks aimed at schema, since
+    // wrappers have no onClick and clicks don't bubble to the sibling below.
+    const screen = await render(<TestViewer value={makeDemoMirrorFixture(100_000)} />);
+    await waitForStatus('done', 60_000);
+    const viewport = screen.getByTestId('tv-viewport').element() as HTMLDivElement;
+    const schema = Array.from(
+      viewport.querySelectorAll<HTMLElement>('[role="treeitem"][aria-expanded="true"]'),
+    ).find((el) => el.textContent?.includes('schema'));
+    expect(schema, 'schema row should render at the top of the viewport').toBeTruthy();
+    expect(schema!.getAttribute('aria-expanded')).toBe('true');
+    await userEvent.click(schema!);
+    await settle();
+    const after = viewport.querySelector<HTMLElement>(`[id="${schema!.id}"]`);
+    expect(after?.getAttribute('aria-expanded')).toBe('false');
+  }, 60_000);
+
   test('screenshot — docs 15MB demo mirror wheeled to the bottom', async () => {
     // 100k items × ~20 lines each ≈ 2M lines (matches docs `15MB` demo).
     const screen = await render(<TestViewer value={makeDemoMirrorFixture(100_000)} />);
