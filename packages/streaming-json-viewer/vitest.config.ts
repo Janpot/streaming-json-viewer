@@ -1,6 +1,10 @@
 import { defineConfig } from 'vitest/config';
-import { playwright } from '@vitest/browser-playwright';
 import { resolve } from 'node:path';
+import {
+  dockerizedPlaywright,
+  resolveDockerDiffPath,
+  resolveDockerScreenshotPath,
+} from './tools/dockerized-playwright';
 
 export default defineConfig({
   resolve: {
@@ -14,7 +18,7 @@ export default defineConfig({
     testTimeout: 15_000,
     browser: {
       enabled: true,
-      provider: playwright(),
+      provider: dockerizedPlaywright(),
       headless: true,
       viewport: { width: 1024, height: 720 },
       instances: [{ browser: 'chromium' }],
@@ -25,6 +29,8 @@ export default defineConfig({
             threshold: 0.1,
             allowedMismatchedPixelRatio: 0.015,
           },
+          resolveScreenshotPath: resolveDockerScreenshotPath,
+          resolveDiffPath: resolveDockerDiffPath,
         },
       },
     },
