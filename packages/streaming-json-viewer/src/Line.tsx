@@ -242,6 +242,9 @@ export function Line({ className, style, onClick, onFocus, children, ...rest }: 
     right: position === 'absolute' ? 0 : undefined,
     height,
     zIndex,
+    // Wrappers above set pointer-events:none to avoid intercepting clicks in
+    // overlapping compressed bounds; rows opt back in here.
+    pointerEvents: 'auto',
   };
 
   const isClose = kind === 'close';

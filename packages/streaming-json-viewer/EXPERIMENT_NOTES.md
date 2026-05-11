@@ -115,6 +115,24 @@ Effect:
 
 In factor=1, `delta = 0` and overlap is zero, so the change is a no-op there.
 
+## Second bug from the same root cause: clicks swallowed by sibling wrappers
+
+The compressed-bounds overlap also broke clicks. A small sibling like `schema`
+sits next to a huge sibling `items`; in factor>1 mode the items wrapper's
+compressed bounds extend upward into schema's row range. Wrappers have no
+`onClick`, but `position: absolute` with default `pointer-events: auto` makes
+them hit-test targets. So clicks on schema's row that landed in the overlap
+strip went to the items wrapper element, where they did nothing — schema
+appeared unclickable, while items (and everything inside it) clicked fine.
+
+**Fix**: `pointer-events: none` on the wrapper div in `JsonViewer.tsx` plus
+`pointer-events: auto` on the row div in `Line.tsx`. `pointer-events` is
+inherited, so without the explicit `auto` on rows the `none` would cascade
+and disable clicks on every row — caught while validating this fix.
+
+Regression test:
+`large-content > schema (small sibling above items) is clickable despite wrapper overlap`.
+
 ## How to verify
 
 1. **Tests**: `pnpm -F streaming-json-viewer test`. All 60 should pass,

@@ -714,6 +714,11 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
             left: 0,
             right: 0,
             height: wrapperHeight,
+            // Wrappers are positioning placeholders. In factor>1 mode their
+            // compressed bounds overlap sibling wrappers, and a wrapper with
+            // pe:auto would swallow clicks meant for the sibling's row below.
+            // Rows opt back in via Line.tsx (mergedStyle.pointerEvents:'auto').
+            pointerEvents: 'none',
           }}
         >
           <LineContext.Provider value={stickyOpenCtx}>{renderRow()}</LineContext.Provider>
