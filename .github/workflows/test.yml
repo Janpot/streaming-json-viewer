@@ -35,7 +35,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: screenshot-diffs
-          path: |
-            packages/streaming-json-viewer/tests/**/__screenshots__/**/*-actual.png
-            packages/streaming-json-viewer/tests/**/__screenshots__/**/*-diff.png
+          path: packages/streaming-json-viewer/.vitest-attachments/tests/**/*.png
           retention-days: 7
