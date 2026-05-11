@@ -23,7 +23,9 @@ const SERVER_PORT_IN_CONTAINER = 5555;
 const STARTUP_TIMEOUT_MS = 30_000;
 
 function isDockerActive(): boolean {
-  return process.platform !== 'linux' && process.env.SJV_DOCKER !== '0';
+  if (process.env.SJV_DOCKER === '0') return false;
+  if (process.env.SJV_DOCKER === '1') return true;
+  return process.platform !== 'linux';
 }
 
 type ResolvePathData = {
@@ -93,9 +95,8 @@ class DockerizedPlaywrightProvider implements BrowserProvider {
   supportsParallelism = true;
 
   private inner: PlaywrightBrowserProvider;
-  private containerName: string | null = null;
+  private leased = false;
   private dockerReady: Promise<void> | null = null;
-  private signalHandler: (() => void) | null = null;
 
   constructor(project: TestProject, options: DockerizedPlaywrightOptions) {
     this.inner = new PlaywrightBrowserProvider(project, {
@@ -142,68 +143,110 @@ class DockerizedPlaywrightProvider implements BrowserProvider {
     try {
       await this.inner.close();
     } finally {
-      await this.stopContainer();
-      if (this.signalHandler) {
-        process.off('SIGINT', this.signalHandler);
-        process.off('SIGTERM', this.signalHandler);
-        this.signalHandler = null;
+      if (this.leased) {
+        this.leased = false;
+        await releaseContainer(this.resolveImage());
       }
     }
+  }
+
+  private resolveImage(): string {
+    return (
+      process.env.SJV_DOCKER_IMAGE ??
+      `mcr.microsoft.com/playwright:v${resolvePlaywrightVersion()}-noble`
+    );
   }
 
   private ensureDocker(): Promise<void> {
     if (this.dockerReady) return this.dockerReady;
-    this.dockerReady = this.startDocker();
+    this.dockerReady = (async () => {
+      const wsEndpoint = await acquireContainer(this.resolveImage());
+      this.leased = true;
+      const innerOptions = (this.inner as unknown as { options: PlaywrightProviderOptions })
+        .options;
+      innerOptions.connectOptions!.wsEndpoint = wsEndpoint;
+    })();
     return this.dockerReady;
   }
+}
 
-  private async startDocker(): Promise<void> {
-    const playwrightVersion = resolvePlaywrightVersion();
-    const image =
-      process.env.SJV_DOCKER_IMAGE ??
-      `mcr.microsoft.com/playwright:v${playwrightVersion}-noble`;
+// --- shared container registry ---------------------------------------------
+// One container per (image tag) per Node process. Multiple BrowserProvider
+// instances (e.g. several vitest projects or browser instances) reuse the same
+// `playwright run-server` and only pay startup once. Reference-counted so the
+// container is stopped after the last provider closes.
 
-    await ensureDockerDaemon();
-    await ensureImage(image);
+interface ContainerLease {
+  refs: number;
+  name: string;
+  ready: Promise<string>;
+}
 
-    const hostPort = await getFreePort();
-    this.containerName = `vitest-pw-${process.pid}-${Date.now().toString(36)}`;
+const containers = new Map<string, ContainerLease>();
+let signalHandlersInstalled = false;
 
-    this.signalHandler = () => {
-      // best-effort sync cleanup on Ctrl-C; the container's `--rm` will GC eventually
-      if (this.containerName) {
-        try {
-          spawn('docker', ['rm', '-f', this.containerName], {
-            stdio: 'ignore',
-            detached: true,
-          }).unref();
-        } catch {
-          // ignore
-        }
-      }
+async function acquireContainer(image: string): Promise<string> {
+  let lease = containers.get(image);
+  if (!lease) {
+    const name = `vitest-pw-${process.pid}-${Date.now().toString(36)}`;
+    if (process.env.SJV_DOCKER_DEBUG) console.error(`[dedup] START ${name} for ${image}`);
+    lease = {
+      refs: 0,
+      name,
+      ready: (async () => {
+        await ensureDockerDaemon();
+        await ensureImage(image);
+        const hostPort = await getFreePort();
+        await startContainer(image, name, hostPort);
+        installSignalHandlersOnce();
+        await waitForContainerLog(name, /Listening on ws:\/\//, STARTUP_TIMEOUT_MS);
+        return `ws://127.0.0.1:${hostPort}/`;
+      })(),
     };
-    process.once('SIGINT', this.signalHandler);
-    process.once('SIGTERM', this.signalHandler);
-
-    await startContainer(image, this.containerName, hostPort);
-    await waitForContainerLog(this.containerName, /Listening on ws:\/\//, STARTUP_TIMEOUT_MS);
-
-    // The inner provider reads connectOptions.wsEndpoint lazily when openBrowser
-    // is called from the first openPage. Mutating it here is safe.
-    const innerOptions = (this.inner as unknown as { options: PlaywrightProviderOptions }).options;
-    innerOptions.connectOptions!.wsEndpoint = `ws://127.0.0.1:${hostPort}/`;
+    containers.set(image, lease);
   }
+  lease.refs += 1;
+  if (process.env.SJV_DOCKER_DEBUG) {
+    console.error(`[dedup] ACQUIRE refs=${lease.refs} ${lease.name}`);
+  }
+  return lease.ready;
+}
 
-  private async stopContainer(): Promise<void> {
-    if (!this.containerName) return;
-    const name = this.containerName;
-    this.containerName = null;
-    try {
-      await execFileAsync('docker', ['rm', '-f', name]);
-    } catch {
-      // container may already be gone
+async function releaseContainer(image: string): Promise<void> {
+  const lease = containers.get(image);
+  if (!lease) return;
+  lease.refs -= 1;
+  if (process.env.SJV_DOCKER_DEBUG) {
+    console.error(`[dedup] RELEASE refs=${lease.refs} ${lease.name}`);
+  }
+  if (lease.refs > 0) return;
+  containers.delete(image);
+  if (process.env.SJV_DOCKER_DEBUG) console.error(`[dedup] STOP ${lease.name}`);
+  try {
+    await execFileAsync('docker', ['rm', '-f', lease.name]);
+  } catch {
+    // container may already be gone
+  }
+}
+
+function installSignalHandlersOnce(): void {
+  if (signalHandlersInstalled) return;
+  signalHandlersInstalled = true;
+  const cleanup = () => {
+    // best-effort sync cleanup on Ctrl-C; --rm will reap when the daemon notices
+    for (const lease of containers.values()) {
+      try {
+        spawn('docker', ['rm', '-f', lease.name], {
+          stdio: 'ignore',
+          detached: true,
+        }).unref();
+      } catch {
+        // ignore
+      }
     }
-  }
+  };
+  process.once('SIGINT', cleanup);
+  process.once('SIGTERM', cleanup);
 }
 
 function resolvePlaywrightVersion(): string {
