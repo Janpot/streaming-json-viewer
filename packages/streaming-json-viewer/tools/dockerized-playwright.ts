@@ -306,6 +306,12 @@ async function getFreePort(): Promise<number> {
 
 async function startContainer(image: string, name: string, hostPort: number): Promise<void> {
   await execFileAsync('docker', ['rm', '-f', name]).catch(() => {});
+  // Pin the npx-fetched playwright to the host's version. The MS Playwright
+  // image only caches browser binaries — the JS package is fetched at run
+  // time via `npx`, which without a version pin grabs *latest* from npm and
+  // drifts ahead of the host's client, producing handshake errors like
+  // "server version: v1.60, client version: v1.59".
+  const version = resolvePlaywrightVersion();
   await execFileAsync('docker', [
     'run',
     '--detach',
@@ -318,7 +324,7 @@ async function startContainer(image: string, name: string, hostPort: number): Pr
     image,
     'npx',
     '-y',
-    'playwright',
+    `playwright@${version}`,
     'run-server',
     '--host',
     '0.0.0.0',

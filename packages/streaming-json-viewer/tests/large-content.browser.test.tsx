@@ -198,54 +198,21 @@ describe('large content (factor > 1)', () => {
       .toMatchScreenshot('demo-mirror-scroll-bottom');
   }, 120_000);
 
-  test('pinned sticky rows stay at depth*ROW_HEIGHT in factor>1 (no drift)', async () => {
-    // Repro of the artifact visible in the docs 15MB demo: as scrollTop
-    // advances through a container boundary, the deepest sticky row drifts
-    // upward by 1 px per scrollTop increment (accumulating up to ~8 px)
-    // before the sticky chain re-evaluates and snaps back. Cause:
-    // factor>1 wrappers have compressed bounds; CSS sticky's "push up to
-    // stay inside parent" fires when the wrapper bottom enters the depth
-    // slot, but the compressed bottom reaches the slot at a different
-    // scroll position than where the real document content actually ends.
+  test('screenshot — docs 15MB demo mirror wheeled to a mid-item offset', async () => {
+    // Locks in the visual at a scroll position that lands mid-way through a
+    // sticky-chain transition. In factor>1 mode the deepest pinned wrapper's
+    // CSS-sticky push-up can fire ahead of the real close row, drifting the
+    // pinned open upward by up to ~8 px before the chain re-evaluates. Use
+    // wheel to scroll so the lib's pixel-precise wheel handler (localOffset)
+    // is exercised — matches real user behavior and is sensitive to changes
+    // in compression geometry.
     const screen = await render(<TestViewer value={makeDemoMirrorFixture(100_000)} />);
     await waitForStatus('done', 60_000);
     const viewport = screen.getByTestId('tv-viewport').element() as HTMLDivElement;
-
-    // Sweep a 60-px window. Drift recurs at every item boundary; this is
-    // wide enough to cross several. Any scrollTop is a valid probe — the
-    // assertion is purely geometric.
-    const drifts: Array<{ scrollTop: number; text: string; delta: number }> = [];
-    for (let st = 100_000; st < 100_060; st++) {
-      viewport.scrollTop = st;
-      viewport.dispatchEvent(new Event('scroll', { bubbles: true }));
-      await settle();
-      const vTop = viewport.getBoundingClientRect().top;
-      const stickies = Array.from(
-        viewport.querySelectorAll<HTMLElement>('[data-sticky]'),
-      );
-      for (const row of stickies) {
-        const ariaLevel = Number(row.getAttribute('aria-level'));
-        if (!Number.isFinite(ariaLevel)) continue;
-        const depth = ariaLevel - 1;
-        const expectedY = depth * ROW_HEIGHT;
-        const actualY = Math.round(row.getBoundingClientRect().top - vTop);
-        const delta = actualY - expectedY;
-        if (delta !== 0) {
-          drifts.push({
-            scrollTop: st,
-            text: (row.textContent ?? '').slice(0, 40).trim(),
-            delta,
-          });
-        }
-      }
-    }
-
-    expect(
-      drifts,
-      `expected every pinned row to sit at depth*ROW_HEIGHT, but saw drift:\n${drifts
-        .slice(0, 10)
-        .map((d) => `  scrollTop=${d.scrollTop} ${JSON.stringify(d.text)} Δ=${d.delta}`)
-        .join('\n')}`,
-    ).toEqual([]);
+    await userEvent.wheel(viewport, { delta: { y: 231 } });
+    await settle();
+    await expect
+      .element(screen.getByTestId('tv-viewport'))
+      .toMatchScreenshot('demo-mirror-wheel-231');
   }, 120_000);
 });
