@@ -575,8 +575,6 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   const delta = (factor - 1) / factor;
   const wrapperTopAbsFn = (lineIdx: number, depth: number) =>
     (lineIdx * ROW_HEIGHT) / factor + depth * ROW_HEIGHT * delta;
-  const wrapperHeightFn = (subtree: number) =>
-    ((subtree - 1) * ROW_HEIGHT) / factor + ROW_HEIGHT * delta;
 
   // Recursive render — every container becomes a wrapper containing its
   // sticky open, visible interior children, and an absolute close row.
@@ -626,8 +624,18 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
 
     if (isExpanded) {
       const selfTopAbs = wrapperTopAbsFn(lineIdx, depth);
-      const wrapperHeight = wrapperHeightFn(subtree);
       const closeLineIdx = lineIdx + subtree - 1;
+      // Wrapper height in CSS = uncompressed offset from wrapper's compressed
+      // top to the close row's true doc-coord top. This keeps wrapper.bottom
+      // in viewport coords aligned with closeRow.top, so CSS sticky's natural
+      // push-up timing matches doc-coords regardless of factor. In factor=1
+      // this reduces to the old (subtree-1)*RH constant. In factor>1 it is
+      // scroll-dependent (varies with translateY) and bounded by scrollRange
+      // + clientHeight, so it never exceeds browser element-coord limits.
+      const wrapperHeight = Math.max(
+        ROW_HEIGHT,
+        closeLineIdx * ROW_HEIGHT + translateY - selfTopAbs,
+      );
       const pinned = pinnedSet.has(id);
 
       // Only chain-pinned wrappers get position:sticky opens. Non-chain
