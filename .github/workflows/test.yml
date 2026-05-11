@@ -7,6 +7,10 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Run inside the same Playwright image the local dev provider uses, so
+    # screenshot rendering is identical between dev (Mac via docker) and CI.
+    # Keep this tag in sync with the `playwright` version in pnpm-lock.yaml.
+    container: mcr.microsoft.com/playwright:v1.59.1-noble
     steps:
       - uses: actions/checkout@v4
 
@@ -20,8 +24,6 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
-
-      - run: pnpm -F streaming-json-viewer exec playwright install --with-deps chromium
 
       - run: pnpm build
 
