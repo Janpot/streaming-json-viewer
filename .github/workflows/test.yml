@@ -23,6 +23,8 @@ jobs:
 
       - run: pnpm -F streaming-json-viewer exec playwright install --with-deps chromium
 
+      - run: pnpm build
+
       - run: pnpm typecheck
 
       - run: pnpm lint
