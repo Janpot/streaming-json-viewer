@@ -14,6 +14,42 @@ async function settle() {
 }
 
 describe('sticky headers', () => {
+  test('no row is marked data-sticky at rest (scrollTop=0)', async () => {
+    const screen = await render(<TestViewer value={makeMediumFixture()} height={300} />);
+    await waitForStatus('done');
+    const viewport = screen.getByTestId('tv-viewport').element() as HTMLDivElement;
+    expect(viewport.scrollTop).toBe(0);
+    expect(viewport.querySelectorAll('[data-sticky]').length).toBe(0);
+    expect(viewport.querySelectorAll('[data-sticky-last]').length).toBe(0);
+  });
+
+  test('root row picks up data-sticky once scrolled past its natural top', async () => {
+    const screen = await render(<TestViewer value={makeMediumFixture()} height={300} />);
+    await waitForStatus('done');
+    const viewport = screen.getByTestId('tv-viewport').element() as HTMLDivElement;
+    viewport.scrollTop = ROW_HEIGHT;
+    viewport.dispatchEvent(new Event('scroll', { bubbles: true }));
+    await settle();
+    expect(viewport.querySelectorAll('[data-sticky]').length).toBeGreaterThan(0);
+  });
+
+  test('depth>0 sticky ancestor gets data-sticky the moment CSS pinning fires', async () => {
+    // `users` is at lineIdx=2, depth=1 → CSS sticky pins it at docScrollTop > 22.
+    // A naive `lineIdx*ROW_HEIGHT < scrollTop` threshold delays data-sticky
+    // until docScrollTop > 44, leaving a 22px gap where the row sticks
+    // visually but renders unstyled.
+    const screen = await render(<TestViewer value={makeMediumFixture()} height={300} />);
+    await waitForStatus('done');
+    const viewport = screen.getByTestId('tv-viewport').element() as HTMLDivElement;
+    viewport.scrollTop = ROW_HEIGHT + 5; // 27 — inside the gap.
+    viewport.dispatchEvent(new Event('scroll', { bubbles: true }));
+    await settle();
+    const stickyLevels = Array.from(viewport.querySelectorAll<HTMLElement>('[data-sticky]'))
+      .map((el) => Number(el.getAttribute('aria-level')))
+      .sort((a, b) => a - b);
+    expect(stickyLevels).toContain(2);
+  });
+
   test('outer container becomes sticky once scrolled past its open row', async () => {
     const screen = await render(<TestViewer value={makeMediumFixture()} height={300} />);
     await waitForStatus('done');

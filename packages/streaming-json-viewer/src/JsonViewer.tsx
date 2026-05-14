@@ -455,7 +455,12 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   // Walk root → deepest non-transparent ancestor whose body covers the
   // viewport. Used to mark `data-sticky` on currently-pinned wrappers and
   // to identify the deepest pinned ancestor for `data-sticky-last`.
+  // `deepestVisuallyStickyId` is the deepest pinned ancestor whose natural
+  // viewport-y has fallen below its sticky-top (= depth*ROW_HEIGHT). At rest
+  // (scrollTop=0) no row is visually sticky even though the root is
+  // technically pinned to its own natural top.
   const pinnedChainIds: number[] = [];
+  let deepestVisuallyStickyId = -1;
   if (nodes.length > 0) {
     let curId = 0;
     let curOpen = 0;
@@ -466,7 +471,10 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       const cc = cur as ContainerNode;
       if (cc.collapsed || cc.childIds.length === 0) break;
       const transparent = cc.transparent === true;
-      if (!transparent) pinnedChainIds.push(curId);
+      if (!transparent) {
+        pinnedChainIds.push(curId);
+        if ((curOpen - depth) * ROW_HEIGHT < docScrollTop) deepestVisuallyStickyId = curId;
+      }
       const nextDepth = transparent ? depth : depth + 1;
       const targetY = docScrollTop + nextDepth * ROW_HEIGHT;
       let childOpen = transparent ? curOpen : curOpen + 1;
@@ -489,8 +497,6 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     }
   }
   const pinnedSet = new Set(pinnedChainIds);
-  const deepestPinnedId =
-    pinnedChainIds.length > 0 ? pinnedChainIds[pinnedChainIds.length - 1]! : -1;
 
   // Determine which row should carry tabIndex=0. Roving tabindex pattern: only
   // one tab stop in the tree. If `focusedId` points to a row that's rendered
@@ -611,8 +617,8 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
         kind: 'open',
         depth,
         lineIdx,
-        isSticky: pinned,
-        isStickyLast: id === deepestPinnedId,
+        isSticky: pinned && (lineIdx - depth) * ROW_HEIGHT < docScrollTop,
+        isStickyLast: id === deepestVisuallyStickyId,
         position: pinned ? 'sticky' : 'absolute',
         top: pinned ? depth * ROW_HEIGHT : openTopAbsolute,
         height: ROW_HEIGHT,
