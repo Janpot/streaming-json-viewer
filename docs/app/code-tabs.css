@@ -66,10 +66,25 @@
   width: var(--active-tab-width);
   translate: var(--active-tab-left) 0;
   background: var(--bg-subtle);
+  /* Side strokes via inset shadow so they don't change box geometry. The
+   * `:has()` rules below drop the side that would otherwise stack on top
+   * of the panel's own left/right border. */
+  box-shadow:
+    inset 1px 0 0 var(--border),
+    inset -1px 0 0 var(--border);
   transition-property: translate, width;
   transition-duration: 200ms;
   transition-timing-function: ease-in-out;
   pointer-events: none;
+}
+.code-tabs-bar:has(.code-tab:first-child[data-active]) .code-tab-indicator {
+  box-shadow: inset -1px 0 0 var(--border);
+}
+.code-tabs-bar:has(.code-tab:nth-last-child(2)[data-active]) .code-tab-indicator {
+  box-shadow: inset 1px 0 0 var(--border);
+}
+.code-tabs-bar:has(.code-tab:first-child:nth-last-child(2)[data-active]) .code-tab-indicator {
+  box-shadow: none;
 }
 .code-block-stack {
   display: grid;
