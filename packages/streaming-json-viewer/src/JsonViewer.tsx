@@ -6,31 +6,30 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type CSSProperties,
   type FocusEventHandler,
   type HTMLAttributes,
   type KeyboardEventHandler,
   type ReactNode,
 } from 'react';
-import { InstanceIdContext, JsonViewerContext, useInstanceId, useStore } from './context';
-import { JsonViewerStore } from './store';
-import { createTokenizer } from './tokenizer';
-import { createParser } from './parser';
+import { RootContext, useRoot, type RootContextValue } from './context';
 import {
-  createTreeBuilder,
+  deepestVisibleAncestor,
   firstOpenLine,
   getNodeLineIdx,
   getRenderDepth,
+  isNodeVisible,
   lastOpenLine,
   nextOpenLine,
   prevOpenLine,
+  propagateSubtreeChange,
 } from './tree';
-import { ingest, type StreamValue } from './ingest';
 import { LineContext, ROW_HEIGHT, type LineContextValue } from './Line';
-import type { ContainerNode, LineCursor, Status } from './types';
+import { ParsedJson } from './sync';
+import type { ContainerNode, LineCursor } from './types';
 
 const OVERSCAN = 12;
 // Browsers cap the maximum height of a single element. Firefox is the strictest
@@ -40,137 +39,92 @@ const OVERSCAN = 12;
 const SAFE_MAX_SPACER_HEIGHT = 8_000_000;
 
 export interface RootProps {
-  value: StreamValue | null;
-  chunkSize?: number;
+  /** A pre-built `ParsedJson` (from `ParsedJson.from` or the
+   * `useStreamingNodes` hook's `tree`), or any raw JS value — raw values
+   * are auto-wrapped via `ParsedJson.from`, memoized by reference so
+   * passing the same object across renders preserves focus/collapse. */
+  value: unknown;
   children: ReactNode;
 }
 
-function Root({ value, chunkSize = 65536, children }: RootProps) {
-  const storeRef = useRef<JsonViewerStore | null>(null);
-  if (!storeRef.current) storeRef.current = new JsonViewerStore();
-  const store = storeRef.current;
+function Root({ value, children }: RootProps) {
+  // Mirrors the fetch/URL/Request pattern: an instance is the unambiguous
+  // pre-built handoff; anything else is auto-converted. Memoized so the
+  // tree (and its ids) survives renders where `value` ref is stable.
+  const tree = useMemo<ParsedJson>(
+    () => (value instanceof ParsedJson ? value : ParsedJson.from(value)),
+    [value],
+  );
+  const nodes = tree.nodes;
+
+  const [focusedId, setFocusedIdState] = useState<number | null>(null);
+  // Bumped on collapse toggle to force re-render — the toggle mutates
+  // `node.collapsed` in place so no other React state changes.
+  const [, setVersion] = useState(0);
   const instanceId = useId();
 
   useEffect(() => {
-    const abort = new AbortController();
-    const builder = createTreeBuilder();
-    store.reset(builder.nodes);
-
-    if (value === null) {
-      return () => {
-        abort.abort();
-      };
-    }
-
-    store.setStatus('streaming');
-
-    // Wrap input in a transparent array root so multiple top-level values
-    // (JSON Lines, concatenated JSON) land as siblings at depth 0. Single-
-    // value input shows as just that value — the wrapper is never rendered.
-    builder.handlers.openArray(null);
-    (builder.nodes[0] as ContainerNode).transparent = true;
-    const parser = createParser(builder.handlers, { multiValue: true });
-    const tokenizer = createTokenizer((t, v) => parser.onToken(t, v));
-
-    let raf = 0;
-    let scheduled = false;
-    const scheduleFlush = () => {
-      if (scheduled) return;
-      scheduled = true;
-      raf = requestAnimationFrame(() => {
-        scheduled = false;
-        store.notify();
-      });
-    };
-
-    let cancelled = false;
-
-    // Defer reader attachment by a microtask so React StrictMode's dev
-    // double-invocation (setup → cleanup → setup) doesn't lock the stream
-    // before the first cleanup can mark itself cancelled.
-    queueMicrotask(() => {
-      if (cancelled) return;
-      (async () => {
-        try {
-          await ingest(value, tokenizer, {
-            signal: abort.signal,
-            chunkSize,
-            onProgress: (b) => {
-              if (cancelled) return;
-              store.bytes = b;
-              scheduleFlush();
-            },
-          });
-          if (cancelled) return;
-          builder.handlers.closeArray();
-          scheduleFlush();
-          store.setStatus('done');
-        } catch (e) {
-          if (cancelled) return;
-          if ((e as Error).name === 'AbortError') return;
-          const err = e instanceof Error ? e : new Error(String(e));
-          store.setStatus('error', err);
-        }
-      })();
+    setFocusedIdState((prev) => {
+      if (prev === null) return prev;
+      // If the previously focused id no longer points to a valid (non-transparent)
+      // node, drop focus.
+      const n = nodes[prev];
+      if (!n) return null;
+      if ((n.type === 'object' || n.type === 'array') && (n as ContainerNode).transparent) {
+        return null;
+      }
+      return prev;
     });
+  }, [nodes]);
 
-    return () => {
-      cancelled = true;
-      abort.abort();
-      if (raf) cancelAnimationFrame(raf);
-    };
-  }, [value, chunkSize, store]);
-
-  return (
-    <JsonViewerContext.Provider value={store}>
-      <InstanceIdContext.Provider value={instanceId}>{children}</InstanceIdContext.Provider>
-    </JsonViewerContext.Provider>
+  const setFocused = useCallback(
+    (id: number | null) => {
+      if (id === null) {
+        setFocusedIdState((prev) => (prev === null ? prev : null));
+        return;
+      }
+      const node = nodes[id];
+      if (!node) return;
+      // Don't focus the transparent root — it has no rendered row.
+      if (
+        (node.type === 'object' || node.type === 'array') &&
+        (node as ContainerNode).transparent
+      ) {
+        return;
+      }
+      const target = isNodeVisible(nodes, id) ? id : deepestVisibleAncestor(nodes, id);
+      if (target === null) return;
+      setFocusedIdState((prev) => (prev === target ? prev : target));
+    },
+    [nodes],
   );
-}
 
-function useStoreVersion(store: JsonViewerStore): number {
-  return useSyncExternalStore(store.subscribe, store.getVersion, store.getVersion);
-}
-
-function Bytes(props: HTMLAttributes<HTMLSpanElement>) {
-  const store = useStore();
-  useStoreVersion(store);
-  return <span {...props}>{store.bytes.toLocaleString()}</span>;
-}
-
-const DEFAULT_STATUS_LABELS: Record<Status, string> = {
-  idle: 'idle',
-  streaming: 'streaming',
-  done: 'complete',
-  error: 'error',
-};
-
-export interface StatusLabelProps extends HTMLAttributes<HTMLSpanElement> {
-  /** Per-status label overrides. Any status not present falls back to the
-   * default. The `error` label, if omitted, falls back to the thrown error's
-   * `message` before the default. */
-  labels?: Partial<Record<Status, string>>;
-}
-
-/**
- * Renders the current ingestion status as `<span data-status="...">{label}</span>`.
- * `data-status` is one of `idle | streaming | done | error` — style each
- * variant via `[data-status='streaming']` etc. Pass `labels` to translate or
- * rename the user-facing text.
- */
-function StatusLabel({ labels, ...props }: StatusLabelProps) {
-  const store = useStore();
-  useStoreVersion(store);
-  const { status, error } = store;
-  const text =
-    status === 'error'
-      ? (labels?.error ?? error?.message ?? DEFAULT_STATUS_LABELS.error)
-      : (labels?.[status] ?? DEFAULT_STATUS_LABELS[status]);
-  return (
-    <span data-status={status} {...props}>
-      {text}
-    </span>
+  const toggleCollapse = useCallback(
+    (id: number) => {
+      const node = nodes[id];
+      if (!node || (node.type !== 'object' && node.type !== 'array')) return;
+      const c = node as ContainerNode;
+      if (c.childIds.length === 0) return;
+      c.collapsed = !c.collapsed;
+      propagateSubtreeChange(nodes, id);
+      if (c.collapsed) {
+        setFocusedIdState((prev) => {
+          if (prev !== null && prev !== id && !isNodeVisible(nodes, prev)) return id;
+          return prev;
+        });
+      }
+      setVersion((v) => v + 1);
+    },
+    [nodes],
   );
+
+  // A fresh ctx each render so RootContext.Provider notifies consumers on
+  // every Root re-render — including the version bump from `toggleCollapse`,
+  // which mutates `node.collapsed` in place and would otherwise not produce
+  // any reference change for the Provider to detect.
+  const ctx: RootContextValue = { nodes, focusedId, setFocused, toggleCollapse, instanceId };
+
+  return <RootContext.Provider value={ctx}>{children}</RootContext.Provider>;
 }
 
 export interface BodyProps {
@@ -251,10 +205,8 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     throw new Error('JsonViewer.Group requires a render-prop child');
   }
   const renderRow = rowRenderer as () => ReactNode;
-  const store = useStore();
-  useStoreVersion(store);
-  const { nodes, totalLines, focusedId, status } = store;
-  const instanceId = useInstanceId();
+  const { nodes, focusedId, setFocused, toggleCollapse, instanceId } = useRoot();
+  const totalLines = nodes.length === 0 ? 0 : nodes[0]!.subtreeLines;
   const shouldFocusDomRef = useRef(false);
   // The focused row's DOM element from the previous commit, plus whether it
   // owned DOM focus then. If a later commit observes that element disconnected
@@ -323,9 +275,9 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       // toggleCollapse may repair focus up to `id` when the focused row
       // was a hidden descendant — make sure DOM focus follows.
       shouldFocusDomRef.current = true;
-      store.toggleCollapse(id);
+      toggleCollapse(id);
     },
-    [store, factor],
+    [toggleCollapse, factor],
   );
 
   // Scroll a line into the visible band if it's outside it. The top
@@ -358,9 +310,9 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       const lineIdx = getNodeLineIdx(nodes, id);
       if (lineIdx !== null) ensureLineVisible(lineIdx, getRenderDepth(nodes, id));
       shouldFocusDomRef.current = true;
-      store.setFocused(id);
+      setFocused(id);
     },
-    [nodes, ensureLineVisible, store],
+    [nodes, ensureLineVisible, setFocused],
   );
 
   const onKeyDown: KeyboardEventHandler<HTMLDivElement> = (e) => {
@@ -403,7 +355,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
         if (!c || c.childIds.length === 0) return;
         if (c.collapsed) {
           shouldFocusDomRef.current = true;
-          store.toggleCollapse(startCursor.id);
+          toggleCollapse(startCursor.id);
         } else moveFocus(c.childIds[0]!);
         return;
       }
@@ -415,7 +367,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
         }
         if (c && !c.collapsed && c.childIds.length > 0) {
           shouldFocusDomRef.current = true;
-          store.toggleCollapse(startCursor.id);
+          toggleCollapse(startCursor.id);
           return;
         }
         let pId = node.parentId;
@@ -449,7 +401,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
         }
         if (c && c.childIds.length > 0) {
           shouldFocusDomRef.current = true;
-          store.toggleCollapse(startCursor.id);
+          toggleCollapse(startCursor.id);
         }
         return;
       }
@@ -658,11 +610,11 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
         zIndex: pinned ? 100 - depth : undefined,
         toggle: pinned
           ? () => handleStickyToggle(id, lineIdx, depth)
-          : () => store.toggleCollapse(id),
+          : () => toggleCollapse(id),
         isFocused: id === effectiveFocusedId,
         hasFocus: id === effectiveFocusedId && hasFocusWithin,
         focus: () => moveFocus(id),
-        syncFocus: () => store.setFocused(id),
+        syncFocus: () => setFocused(id),
         lineId: `${instanceId}-line-${id}`,
       };
 
@@ -692,11 +644,11 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
           position: 'absolute',
           top: closeTop,
           height: ROW_HEIGHT,
-          toggle: () => store.toggleCollapse(id),
+          toggle: () => toggleCollapse(id),
           isFocused: false,
           hasFocus: false,
           focus: () => moveFocus(id),
-          syncFocus: () => store.setFocused(id),
+          syncFocus: () => setFocused(id),
           lineId: `${instanceId}-line-${id}`,
         };
         closeNode = (
@@ -755,11 +707,11 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       position: 'absolute',
       top: rowTop,
       height: ROW_HEIGHT,
-      toggle: c ? () => store.toggleCollapse(id) : () => {},
+      toggle: c ? () => toggleCollapse(id) : () => {},
       isFocused: id === effectiveFocusedId,
       hasFocus: id === effectiveFocusedId && hasFocusWithin,
       focus: () => moveFocus(id),
-      syncFocus: () => store.setFocused(id),
+      syncFocus: () => setFocused(id),
       lineId: `${instanceId}-line-${id}`,
     };
     return (
@@ -844,7 +796,6 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       className={className}
       style={mergedStyle}
       role={role ?? 'tree'}
-      aria-busy={status === 'streaming' ? true : undefined}
       onScroll={onScroll}
       onKeyDown={onKeyDown}
       onFocus={onFocus}
@@ -856,5 +807,5 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   );
 });
 
-export { Root, Bytes, StatusLabel, Viewport, Body, Group };
+export { Root, Viewport, Body, Group };
 export { Line, Trigger, LineContent } from './Line';

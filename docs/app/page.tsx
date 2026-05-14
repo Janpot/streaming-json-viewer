@@ -1,23 +1,54 @@
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readdir, readFile } from 'node:fs/promises';
+import { extname, join } from 'node:path';
+import { Suspense } from 'react';
 import { codeToHtml, type BundledLanguage } from 'shiki';
 import { CodeTabs } from './code-tabs';
 import { DemoApp } from './demo-app';
 
 const THEME = 'github-dark';
 
-async function loadHighlighted(file: string, lang: BundledLanguage) {
-  const source = await readFile(join(process.cwd(), 'app', file), 'utf8');
-  const html = await codeToHtml(source, { lang, theme: THEME });
-  return { name: file, html };
+const EXT_LANG: Record<string, BundledLanguage> = {
+  '.tsx': 'tsx',
+  '.ts': 'ts',
+  '.jsx': 'jsx',
+  '.js': 'js',
+  '.css': 'css',
+};
+
+// Lower = earlier. Source files come before stylesheets.
+const EXT_ORDER: Record<string, number> = {
+  '.tsx': 0,
+  '.ts': 1,
+  '.jsx': 2,
+  '.js': 3,
+  '.css': 4,
+};
+
+async function loadFolder(path: string) {
+  const dir = join(process.cwd(), path);
+  const entries = await readdir(dir);
+  const files = entries
+    .filter((f) => extname(f) in EXT_LANG)
+    .sort((a, b) => {
+      const ai = a.startsWith('index.');
+      const bi = b.startsWith('index.');
+      if (ai !== bi) return ai ? -1 : 1;
+      const ax = EXT_ORDER[extname(a)] ?? 99;
+      const bx = EXT_ORDER[extname(b)] ?? 99;
+      if (ax !== bx) return ax - bx;
+      return a.localeCompare(b);
+    });
+  return Promise.all(
+    files.map(async (name) => {
+      const source = await readFile(join(dir, name), 'utf8');
+      const html = await codeToHtml(source, { lang: EXT_LANG[extname(name)]!, theme: THEME });
+      return { name, html };
+    }),
+  );
 }
 
 export default async function Page() {
-  const files = await Promise.all([
-    loadHighlighted('demo-viewer.tsx', 'tsx'),
-    loadHighlighted('demo-viewer.css', 'css'),
-    loadHighlighted('chevron.tsx', 'tsx'),
-  ]);
+  const files = await loadFolder('demo');
 
   return (
     <div className="app">
@@ -52,7 +83,9 @@ export default async function Page() {
           throughout.
         </p>
 
-        <DemoApp />
+        <Suspense fallback={null}>
+          <DemoApp />
+        </Suspense>
         <CodeTabs files={files} />
       </div>
     </div>

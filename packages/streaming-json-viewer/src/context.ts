@@ -1,18 +1,20 @@
 import { createContext, useContext } from 'react';
-import type { JsonViewerStore } from './store';
+import type { TreeNode } from './types';
 
-export const JsonViewerContext = createContext<JsonViewerStore | null>(null);
-
-export function useStore(): JsonViewerStore {
-  const store = useContext(JsonViewerContext);
-  if (!store) {
-    throw new Error('JsonViewer parts must be rendered inside <JsonViewer.Root>');
-  }
-  return store;
+export interface RootContextValue {
+  nodes: TreeNode[];
+  focusedId: number | null;
+  setFocused: (id: number | null) => void;
+  toggleCollapse: (id: number) => void;
+  instanceId: string;
 }
 
-export const InstanceIdContext = createContext<string>('jv');
+export const RootContext = createContext<RootContextValue | null>(null);
 
-export function useInstanceId(): string {
-  return useContext(InstanceIdContext);
+export function useRoot(): RootContextValue {
+  const ctx = useContext(RootContext);
+  if (!ctx) {
+    throw new Error('JsonViewer parts must be rendered inside <JsonViewer.Root>');
+  }
+  return ctx;
 }

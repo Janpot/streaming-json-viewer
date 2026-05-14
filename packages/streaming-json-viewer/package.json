@@ -11,6 +11,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./streaming": {
+      "types": "./dist/streaming.d.ts",
+      "import": "./dist/streaming.js",
+      "require": "./dist/streaming.cjs"
     }
   },
   "files": ["dist", "README.md"],

@@ -106,17 +106,14 @@ body {
   padding: 0;
   font: inherit;
   cursor: pointer;
+  text-decoration: none;
   transition: color 120ms;
 }
 .demo-action:hover {
   color: var(--fg);
 }
-.demo-action-active {
+.demo-action[data-active] {
   color: var(--accent);
-}
-.demo-action:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .demo-input-row {
@@ -191,4 +188,64 @@ body {
   border-radius: 4px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
+}
+
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+.status-bar-label {
+  color: var(--fg-faint);
+  margin-right: 6px;
+}
+.status-bar-value {
+  display: inline-block;
+  min-width: 10ch;
+  color: var(--fg);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.status-chip::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.status-chip[data-status='idle'] {
+  color: var(--fg-faint);
+}
+.status-chip[data-status='streaming'] {
+  color: var(--accent);
+}
+.status-chip[data-status='streaming']::before {
+  animation: status-pulse 1s ease-in-out infinite;
+}
+.status-chip[data-status='done'] {
+  color: #6fb07a;
+}
+.status-chip[data-status='error'] {
+  color: #e06c75;
+}
+@keyframes status-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
 }

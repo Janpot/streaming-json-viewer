@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Chevron } from './chevron';
+import { Tabs } from '@base-ui/react/tabs';
+import { Chevron } from '@/demo/chevron';
 import './code-tabs.css';
 
 type Props = {
@@ -10,8 +11,7 @@ type Props = {
 
 export function CodeTabs({ files }: Props) {
   const [expanded, setExpanded] = useState(false);
-  const [activeName, setActiveName] = useState(files[0]?.name ?? '');
-  const active = files.find((f) => f.name === activeName) ?? files[0];
+  const first = files[0]?.name ?? '';
   return (
     <div className="code-tabs">
       <button
@@ -25,30 +25,28 @@ export function CodeTabs({ files }: Props) {
         </span>
         <span>{expanded ? 'hide the code' : 'show the code'}</span>
       </button>
-      {expanded && active && (
-        <div className="code-panel">
-          <div className="code-tabs-bar">
+      {expanded && files.length > 0 && (
+        <Tabs.Root defaultValue={first} className="code-panel">
+          <Tabs.List className="code-tabs-bar">
             {files.map((file) => (
-              <button
-                key={file.name}
-                className={`code-tab ${file.name === active.name ? 'code-tab-active' : ''}`}
-                onClick={() => setActiveName(file.name)}
-              >
+              <Tabs.Tab key={file.name} value={file.name} className="code-tab">
                 {file.name}
-              </button>
+              </Tabs.Tab>
             ))}
-          </div>
+            <Tabs.Indicator className="code-tab-indicator" />
+          </Tabs.List>
           <div className="code-block-stack">
             {files.map((file) => (
-              <div
+              <Tabs.Panel
                 key={file.name}
+                value={file.name}
+                keepMounted
                 className="code-block"
-                hidden={file.name !== active.name}
                 dangerouslySetInnerHTML={{ __html: file.html }}
               />
             ))}
           </div>
-        </div>
+        </Tabs.Root>
       )}
     </div>
   );

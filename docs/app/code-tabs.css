@@ -34,11 +34,14 @@
   overflow: hidden;
 }
 .code-tabs-bar {
+  position: relative;
   display: flex;
   background: var(--bg-emphasis);
   border-bottom: 1px solid var(--border);
 }
 .code-tab {
+  position: relative;
+  z-index: 1;
   background: transparent;
   color: var(--fg-dim);
   border: none;
@@ -51,9 +54,22 @@
 .code-tab:hover {
   color: var(--fg);
 }
-.code-tab-active {
+.code-tab[data-active] {
   color: var(--fg);
+}
+.code-tab-indicator {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  bottom: -1px;
+  left: 0;
+  width: var(--active-tab-width);
+  translate: var(--active-tab-left) 0;
   background: var(--bg-subtle);
+  transition-property: translate, width;
+  transition-duration: 200ms;
+  transition-timing-function: ease-in-out;
+  pointer-events: none;
 }
 .code-block-stack {
   display: grid;
@@ -61,7 +77,7 @@
 .code-block-stack > .code-block {
   grid-area: 1 / 1;
 }
-.code-block-stack > .code-block[hidden] {
+.code-block-stack > .code-block[data-hidden] {
   display: block;
   visibility: hidden;
 }

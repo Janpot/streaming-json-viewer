@@ -1,4 +1,5 @@
-import { JsonViewer, type StreamValue } from 'streaming-json-viewer';
+import { JsonViewer } from 'streaming-json-viewer';
+import { useStreamingNodes, type StreamValue } from 'streaming-json-viewer/streaming';
 import type { CSSProperties } from 'react';
 import type React from 'react';
 
@@ -41,16 +42,20 @@ export function TestViewer({
   onViewportFocus,
 }: TestViewerProps) {
   const shellStyle: CSSProperties = { width, height };
+  const { tree, bytes, status, error } = useStreamingNodes(value, { chunkSize });
+  const ariaBusy = status === 'streaming' ? true : undefined;
+  const statusText = status === 'error' ? (error?.message ?? 'error') : status;
   return (
     <div>
       <button type="button" data-testid="leading-button">
         before
       </button>
-      <JsonViewer.Root value={value} chunkSize={chunkSize}>
+      <JsonViewer.Root value={tree}>
         <div className="tv-shell" style={shellStyle} data-testid="tv-shell">
           <JsonViewer.Viewport
             className="tv-viewport"
             aria-label="JSON tree"
+            aria-busy={ariaBusy}
             data-testid="tv-viewport"
             onBlur={onViewportBlur}
             onFocus={onViewportFocus}
@@ -73,9 +78,15 @@ export function TestViewer({
           {showStatusBar && (
             <div className="tv-status-bar">
               <span>
-                bytes <JsonViewer.Bytes data-testid="tv-bytes" />
+                bytes <span data-testid="tv-bytes">{bytes.toLocaleString()}</span>
               </span>
-              <JsonViewer.StatusLabel className="tv-status-chip" data-testid="tv-status" />
+              <span
+                className="tv-status-chip"
+                data-testid="tv-status"
+                data-status={status}
+              >
+                {statusText}
+              </span>
             </div>
           )}
         </div>

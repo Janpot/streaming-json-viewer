@@ -1,8 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { StreamValue } from 'streaming-json-viewer';
-import { DemoViewer } from './demo-viewer';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { Tabs } from '@base-ui/react/tabs';
+import { useStreamingNodes, type StreamValue } from 'streaming-json-viewer/streaming';
+import { DemoViewer } from '@/demo';
 
 const TAGS = ['urgent', 'review', 'draft', 'blocked', 'ready', 'shipped', 'archived'];
 
@@ -40,7 +43,16 @@ function generateDemoJsonl(count: number): string {
   return lines.join('\n');
 }
 
-type Tab = '1.5mb' | '15mb' | 'jsonl' | 'url' | 'text';
+const TABS = ['1.5mb', '15mb', 'jsonl', 'url', 'text'] as const;
+type Tab = (typeof TABS)[number];
+
+const TAB_LABELS: Record<Tab, string> = {
+  '1.5mb': '~1.5MB',
+  '15mb': '~15MB',
+  jsonl: 'json lines',
+  url: 'url',
+  text: 'text',
+};
 
 const SIZES: Record<'1.5mb' | '15mb', number> = {
   '1.5mb': 10000,
@@ -49,35 +61,40 @@ const SIZES: Record<'1.5mb' | '15mb', number> = {
 
 const JSONL_COUNT = 10000;
 
+const DEFAULT_TAB: Tab = '1.5mb';
+
 function isTab(v: string | null): v is Tab {
-  return v === '1.5mb' || v === '15mb' || v === 'jsonl' || v === 'url' || v === 'text';
+  return TABS.includes(v as Tab);
+}
+
+function tabHref(tab: Tab): string {
+  return tab === DEFAULT_TAB ? '/' : `/?tab=${tab}`;
 }
 
 export function DemoApp() {
-  const [activeTab, setActiveTab] = useState<Tab>('1.5mb');
+  const searchParams = useSearchParams();
+  const param = searchParams.get('tab');
+  const activeTab: Tab = isTab(param) ? param : DEFAULT_TAB;
+
   const [urlValue, setUrlValue] = useState('');
   const [textValue, setTextValue] = useState(
     '{"hello":"world","nested":{"arr":[1,2,3,true,null]}}',
   );
   const [active, setActive] = useState<{ value: StreamValue; key: number } | null>(null);
-  const [busy, setBusy] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
-  const loadJson = async (count: number) => {
-    setFetchError(null);
-    setBusy(true);
-    await new Promise((r) => setTimeout(r, 16));
-    setActive({ value: generateDemoJson(count), key: Date.now() });
-    setBusy(false);
-  };
+  const { tree, bytes, status, error } = useStreamingNodes(active?.value ?? null);
+  const statusText = status === 'error' ? (error?.message ?? 'error') : status;
 
-  const loadJsonl = async (count: number) => {
+  useEffect(() => {
     setFetchError(null);
-    setBusy(true);
-    await new Promise((r) => setTimeout(r, 16));
-    setActive({ value: generateDemoJsonl(count), key: Date.now() });
-    setBusy(false);
-  };
+    if (activeTab === '1.5mb' || activeTab === '15mb') {
+      setActive({ value: generateDemoJson(SIZES[activeTab]), key: Date.now() });
+    } else if (activeTab === 'jsonl') {
+      setActive({ value: generateDemoJsonl(JSONL_COUNT), key: Date.now() });
+    }
+    // 'url' and 'text' tabs wait for explicit user action.
+  }, [activeTab]);
 
   const loadUrl = async () => {
     setFetchError(null);
@@ -98,67 +115,23 @@ export function DemoApp() {
     setActive({ value: textValue, key: Date.now() });
   };
 
-  const runForTab = (tab: Tab) => {
-    if (tab === '1.5mb' || tab === '15mb') void loadJson(SIZES[tab]);
-    else if (tab === 'jsonl') void loadJsonl(JSONL_COUNT);
-  };
-
-  useEffect(() => {
-    const tab = new URLSearchParams(window.location.search).get('tab');
-    const initial: Tab = isTab(tab) ? tab : '1.5mb';
-    setActiveTab(initial);
-    runForTab(initial);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const switchTab = (next: Tab) => {
-    setActiveTab(next);
-    const url = new URL(window.location.href);
-    if (next === '1.5mb') url.searchParams.delete('tab');
-    else url.searchParams.set('tab', next);
-    window.history.replaceState(null, '', url);
-    runForTab(next);
-  };
-
   return (
     <>
-      <div className="demo-actions">
-        <button
-          className={`demo-action ${activeTab === '1.5mb' ? 'demo-action-active' : ''}`}
-          onClick={() => switchTab('1.5mb')}
-          disabled={busy}
-        >
-          ~1.5MB
-        </button>
-        <button
-          className={`demo-action ${activeTab === '15mb' ? 'demo-action-active' : ''}`}
-          onClick={() => switchTab('15mb')}
-          disabled={busy}
-        >
-          15MB
-        </button>
-        <button
-          className={`demo-action ${activeTab === 'jsonl' ? 'demo-action-active' : ''}`}
-          onClick={() => switchTab('jsonl')}
-          disabled={busy}
-        >
-          json lines
-        </button>
-        <button
-          className={`demo-action ${activeTab === 'url' ? 'demo-action-active' : ''}`}
-          onClick={() => switchTab('url')}
-          disabled={busy}
-        >
-          url
-        </button>
-        <button
-          className={`demo-action ${activeTab === 'text' ? 'demo-action-active' : ''}`}
-          onClick={() => switchTab('text')}
-          disabled={busy}
-        >
-          text
-        </button>
-      </div>
+      <Tabs.Root value={activeTab}>
+        <Tabs.List className="demo-actions">
+          {TABS.map((t) => (
+            <Tabs.Tab
+              key={t}
+              value={t}
+              nativeButton={false}
+              className="demo-action"
+              render={<Link href={tabHref(t)} scroll={false} />}
+            >
+              {TAB_LABELS[t]}
+            </Tabs.Tab>
+          ))}
+        </Tabs.List>
+      </Tabs.Root>
 
       {activeTab === 'url' && (
         <div className="demo-input-row">
@@ -191,7 +164,16 @@ export function DemoApp() {
       )}
 
       <div className="section-label">demo:</div>
-      <DemoViewer value={active?.value ?? null} />
+      <DemoViewer value={tree} />
+      <div className="status-bar">
+        <span>
+          <span className="status-bar-label">bytes</span>
+          <span className="status-bar-value">{bytes.toLocaleString()}</span>
+        </span>
+        <span className="status-chip" data-status={status}>
+          {statusText}
+        </span>
+      </div>
     </>
   );
 }

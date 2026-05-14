@@ -27,7 +27,7 @@ describe('streaming', () => {
     ctrl.push(text.slice(half));
     ctrl.end();
     await waitForStatus('done');
-    await expect.element(status).toHaveTextContent('complete');
+    await expect.element(status).toHaveTextContent('done');
     await expect.element(tree).not.toHaveAttribute('aria-busy');
   });
 

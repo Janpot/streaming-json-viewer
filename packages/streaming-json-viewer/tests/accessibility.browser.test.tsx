@@ -148,7 +148,7 @@ describe('accessibility', () => {
     ctrl.push(text.slice(Math.floor(text.length / 2)));
     ctrl.end();
     await waitForStatus('done');
-    await expect.element(status).toHaveTextContent('complete');
+    await expect.element(status).toHaveTextContent('done');
 
     await screen.rerender(<TestViewer value={'{ not json'} />);
     await waitForStatus('error');

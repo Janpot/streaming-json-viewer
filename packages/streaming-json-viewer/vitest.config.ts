@@ -9,6 +9,7 @@ import {
 export default defineConfig({
   resolve: {
     alias: {
+      'streaming-json-viewer/streaming': resolve(__dirname, './src/streaming.ts'),
       'streaming-json-viewer': resolve(__dirname, './src/index.ts'),
     },
   },

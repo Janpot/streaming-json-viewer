@@ -2,10 +2,12 @@
 
 A streaming JSON viewer for React. Incremental parse, virtualized rendering, sticky ancestor headers.
 
+Render any value:
+
 ```tsx
 import { JsonViewer } from 'streaming-json-viewer';
 
-<JsonViewer.Root value={jsonStringOrStream}>
+<JsonViewer.Root value={{ hello: 'world', items: [1, 2, 3] }}>
   <JsonViewer.Viewport style={{ flex: 1 }}>
     <JsonViewer.Body>
       {() => (
@@ -25,18 +27,77 @@ import { JsonViewer } from 'streaming-json-viewer';
 </JsonViewer.Root>;
 ```
 
+Stream into it:
+
+```tsx
+import { JsonViewer } from 'streaming-json-viewer';
+import { useStreamingNodes } from 'streaming-json-viewer/streaming';
+
+function StreamedViewer({ source }: { source: string | ReadableStream<Uint8Array> }) {
+  const { tree, bytes, status, error } = useStreamingNodes(source);
+  return (
+    <>
+      <JsonViewer.Root value={tree}>{/* …same composition as above… */}</JsonViewer.Root>
+      <div>
+        {bytes.toLocaleString()} bytes · {status}
+        {error && <span>: {error.message}</span>}
+      </div>
+    </>
+  );
+}
+```
+
+## Entry points
+
+| Import                                                | Pulls in                          | Use for                                                |
+| ----------------------------------------------------- | --------------------------------- | ------------------------------------------------------ |
+| `streaming-json-viewer`                               | components + `ParsedJson`         | rendering; sync conversion from any JS value           |
+| `streaming-json-viewer/streaming`                     | tokenizer + parser + ingest + hook | streaming a `string` or `ReadableStream` over time     |
+
+The core entry does not depend on the tokenizer / streaming code, so consumers who only render in-memory data don't pay for it.
+
 ## API
 
 ### `<JsonViewer.Root>`
 
-| Prop        | Type                                                             | Description                                  |
-| ----------- | ---------------------------------------------------------------- | -------------------------------------------- |
-| `value`     | `string \| ReadableStream<Uint8Array> \| ReadableStream<string>` | JSON source. Changing it restarts ingestion. |
-| `chunkSize` | `number = 65536`                                                 | Chunk size for string ingestion.             |
+| Prop       | Type                | Description                                                                                                                                                                |
+| ---------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `value`    | `unknown`           | A `ParsedJson` instance (from `ParsedJson.from` or `useStreamingNodes`'s `tree`) or any raw JS value (auto-wrapped). Memoized by reference so a stable ref preserves state. |
+| `children` | `ReactNode`         | The parts (`Viewport`, etc.).                                                                                                                                              |
 
-Renders no DOM element — sets up shared state for the parts.
+Renders no DOM element — sets up shared state (focus, collapse) for the parts.
 
-For a status bar (bytes streamed, idle/streaming/done/error), wire it up around the stream you pass in: `tee()` the `ReadableStream`, pass one branch to `<Root>`, and consume the other yourself to count bytes and observe completion / errors.
+### `ParsedJson`
+
+```ts
+class ParsedJson {
+  readonly nodes: TreeNode[];
+  constructor(nodes: TreeNode[]);
+  static from(value: unknown): ParsedJson;
+}
+```
+
+The "pre-built tree" handoff. Pass an instance to `<Root value={...}>` and the library uses it directly; pass anything else and the library calls `ParsedJson.from` for you (memoized on the `value` reference). Mirrors the `fetch(input)` / `new URL(input)` idiom — instances are unambiguous, raw values are auto-converted.
+
+Use `ParsedJson.from(value)` explicitly when you want to manipulate the resulting nodes before rendering, or to lift the conversion out of render so the same instance survives reference changes.
+
+### `useStreamingNodes` (subpath)
+
+```ts
+import { useStreamingNodes, type StreamValue } from 'streaming-json-viewer/streaming';
+
+useStreamingNodes(
+  value: StreamValue | null,
+  opts?: { chunkSize?: number },
+): {
+  tree: ParsedJson;
+  bytes: number;
+  status: 'idle' | 'streaming' | 'done' | 'error';
+  error: Error | null;
+};
+```
+
+`StreamValue` is `string | ReadableStream<Uint8Array> | ReadableStream<string>`. The hook owns the tokenizer / parser / ingest pipeline, batches updates via `requestAnimationFrame`, and supports multiple top-level values (JSON Lines). `bytes`/`status`/`error` are yours to render however you like — `<Root>` doesn't know about them.
 
 ### `<JsonViewer.Viewport>`
 
