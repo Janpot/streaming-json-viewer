@@ -129,6 +129,26 @@ describe('mouse and keyboard', () => {
     expect(before.matches(':focus-visible')).toBe(true);
   });
 
+  test('toggling collapse keeps the trigger span mounted (enables CSS transition)', async () => {
+    // Regression: toggling collapse used to swap the row's parent between a
+    // wrapper <div> and a bare Provider, remounting the trigger and breaking
+    // any CSS transition on its data-state.
+    const screen = await render(<TestViewer value={makeMediumFixture()} />);
+    await waitForStatus('done');
+    const usersRow = screen.getByRole('treeitem', { name: /users/ }).element() as HTMLElement;
+    const trigger = usersRow.querySelector('.tv-trigger') as HTMLElement;
+    expect(trigger).not.toBeNull();
+    expect(trigger.getAttribute('data-state')).toBe('open');
+
+    await userEvent.click(usersRow);
+    expect(trigger.isConnected).toBe(true);
+    expect(trigger.getAttribute('data-state')).toBe('closed');
+
+    await userEvent.click(usersRow);
+    expect(trigger.isConnected).toBe(true);
+    expect(trigger.getAttribute('data-state')).toBe('open');
+  });
+
   test('focus-visible survives scrolling the focused row offscreen and back', async () => {
     const screen = await render(<TestViewer value={makeMediumFixture()} height={132} />);
     await waitForStatus('done');

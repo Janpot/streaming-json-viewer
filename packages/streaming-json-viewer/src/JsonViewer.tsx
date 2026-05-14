@@ -574,7 +574,12 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       return out.length > 0 ? <>{out}</> : null;
     }
 
-    if (isExpanded) {
+    // Toggleable container (non-transparent, has children). Renders a wrapper
+    // even when collapsed, so the open row's <Trigger> stays mounted across
+    // toggles — required for the CSS rotate transition on `data-state` to fire.
+    const isToggleable = c !== null && !isTransparent && c.childIds.length > 0;
+    if (isToggleable) {
+      const collapsed = c!.collapsed;
       const selfTopAbs = wrapperTopAbsFn(lineIdx, depth);
       const closeLineIdx = lineIdx + subtree - 1;
       // Wrapper height in CSS = uncompressed offset from wrapper's compressed
@@ -584,10 +589,14 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       // this reduces to the old (subtree-1)*RH constant. In factor>1 it is
       // scroll-dependent (varies with translateY) and bounded by scrollRange
       // + clientHeight, so it never exceeds browser element-coord limits.
-      const wrapperHeight = Math.max(
-        ROW_HEIGHT,
-        closeLineIdx * ROW_HEIGHT + translateY - selfTopAbs,
-      );
+      // When collapsed subtree===1 so there is no close row; height is exactly
+      // ROW_HEIGHT (the formula would otherwise drift in factor>1 mode).
+      const wrapperHeight = collapsed
+        ? ROW_HEIGHT
+        : Math.max(ROW_HEIGHT, closeLineIdx * ROW_HEIGHT + translateY - selfTopAbs);
+      // Collapsed containers are never in pinnedSet (built from expanded
+      // ancestors only), so `pinned` is false and the open row falls back to
+      // absolute positioning — matching the prior collapsed single-row path.
       const pinned = pinnedSet.has(id);
 
       // Only chain-pinned wrappers get position:sticky opens. Non-chain
@@ -619,43 +628,45 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       };
 
       const interior: ReactNode[] = [];
-      let cursor = lineIdx + 1;
-      for (const cid of c!.childIds) {
-        const child = nodes[cid]!;
-        const r = renderNode(cid, cursor, depth + 1, selfTopAbs, false);
-        if (r != null) interior.push(r);
-        cursor += child.subtreeLines;
-      }
-
       let closeNode: ReactNode = null;
-      if (closeLineIdx >= startIdx && closeLineIdx < endIdx) {
-        // Close `top` relative to wrapper. Equals (subtree - 1)*RH when
-        // factor==1; in factor>1 mode it's scroll-dependent so the close
-        // tracks its true doc-coord position.
-        const closeTop = Math.round(closeLineIdx * ROW_HEIGHT + translateY - selfTopAbs);
-        const closeCtx: LineContextValue = {
-          node,
-          parent,
-          kind: 'close',
-          depth,
-          lineIdx: closeLineIdx,
-          isSticky: false,
-          isStickyLast: false,
-          position: 'absolute',
-          top: closeTop,
-          height: ROW_HEIGHT,
-          toggle: () => toggleCollapse(id),
-          isFocused: false,
-          hasFocus: false,
-          focus: () => moveFocus(id),
-          syncFocus: () => setFocused(id),
-          lineId: `${instanceId}-line-${id}`,
-        };
-        closeNode = (
-          <LineContext.Provider key={`${id}-close`} value={closeCtx}>
-            {renderRow()}
-          </LineContext.Provider>
-        );
+      if (!collapsed) {
+        let cursor = lineIdx + 1;
+        for (const cid of c!.childIds) {
+          const child = nodes[cid]!;
+          const r = renderNode(cid, cursor, depth + 1, selfTopAbs, false);
+          if (r != null) interior.push(r);
+          cursor += child.subtreeLines;
+        }
+
+        if (closeLineIdx >= startIdx && closeLineIdx < endIdx) {
+          // Close `top` relative to wrapper. Equals (subtree - 1)*RH when
+          // factor==1; in factor>1 mode it's scroll-dependent so the close
+          // tracks its true doc-coord position.
+          const closeTop = Math.round(closeLineIdx * ROW_HEIGHT + translateY - selfTopAbs);
+          const closeCtx: LineContextValue = {
+            node,
+            parent,
+            kind: 'close',
+            depth,
+            lineIdx: closeLineIdx,
+            isSticky: false,
+            isStickyLast: false,
+            position: 'absolute',
+            top: closeTop,
+            height: ROW_HEIGHT,
+            toggle: () => toggleCollapse(id),
+            isFocused: false,
+            hasFocus: false,
+            focus: () => moveFocus(id),
+            syncFocus: () => setFocused(id),
+            lineId: `${instanceId}-line-${id}`,
+          };
+          closeNode = (
+            <LineContext.Provider key={`${id}-close`} value={closeCtx}>
+              {renderRow()}
+            </LineContext.Provider>
+          );
+        }
       }
 
       const wrapperTop = isOutermost
@@ -688,7 +699,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       );
     }
 
-    // Single-row node: primitive, empty container, or collapsed container.
+    // Single-row node: primitive or empty container.
     if (lineIdx < startIdx || lineIdx >= endIdx) return null;
     // Outermost: position in spacer coords directly. Otherwise: relative to
     // parent wrapper's spacer y. Both reduce to flat-row coords because
