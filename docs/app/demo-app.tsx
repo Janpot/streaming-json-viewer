@@ -6,7 +6,7 @@ import { Tabs } from '@base-ui/react/tabs';
 import { CodeTabs } from './code-tabs';
 import type { CodeFile } from './page';
 import { DEMO_NAMES, DEMO_LABELS, DEFAULT_DEMO, type DemoName } from './demos';
-import Demo15Mb from '@/demo/1.5mb';
+import DemoStatic from '@/demo/static';
 import Demo15MbBig from '@/demo/15mb';
 import DemoJsonl from '@/demo/jsonl';
 import DemoUrl from '@/demo/url';
@@ -14,7 +14,7 @@ import DemoText from '@/demo/text';
 import DemoScrollArea from '@/demo/scrollarea';
 
 const DEMO_COMPONENTS: Record<DemoName, () => React.JSX.Element> = {
-  '1.5mb': Demo15Mb,
+  static: DemoStatic,
   '15mb': Demo15MbBig,
   jsonl: DemoJsonl,
   url: DemoUrl,

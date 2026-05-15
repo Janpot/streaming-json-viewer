@@ -42,9 +42,14 @@ export interface RootProps {
    * passing the same object across renders preserves focus/collapse. */
   value: unknown;
   children: ReactNode;
+  /** When `true`, only the rows in (or near) the viewport are mounted —
+   * required for very large documents. When `false` (default) every row
+   * is rendered to the DOM, which simplifies small payloads, find-in-page,
+   * accessibility, and snapshot tests. */
+  virtualized?: boolean;
 }
 
-function Root({ value, children }: RootProps) {
+function Root({ value, children, virtualized = false }: RootProps) {
   // Mirrors the fetch/URL/Request pattern: an instance is the unambiguous
   // pre-built handoff; anything else is auto-converted. Memoized so the
   // tree (and its ids) survives renders where `value` ref is stable.
@@ -119,7 +124,14 @@ function Root({ value, children }: RootProps) {
   // every Root re-render — including the version bump from `toggleCollapse`,
   // which mutates `node.collapsed` in place and would otherwise not produce
   // any reference change for the Provider to detect.
-  const ctx: RootContextValue = { nodes, focusedId, setFocused, toggleCollapse, instanceId };
+  const ctx: RootContextValue = {
+    nodes,
+    focusedId,
+    setFocused,
+    toggleCollapse,
+    instanceId,
+    virtualized,
+  };
 
   return <RootContext.Provider value={ctx}>{children}</RootContext.Provider>;
 }
@@ -206,7 +218,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     throw new Error('JsonViewer.Group requires a render-prop child');
   }
   const renderRow = rowRenderer as () => ReactNode;
-  const { nodes, focusedId, setFocused, toggleCollapse, instanceId } = useRoot();
+  const { nodes, focusedId, setFocused, toggleCollapse, instanceId, virtualized } = useRoot();
   const totalLines = nodes.length === 0 ? 0 : nodes[0]!.subtreeLines;
   const shouldFocusDomRef = useRef(false);
   // The focused row's DOM element from the previous commit, plus whether it
@@ -254,11 +266,20 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   // scroll positions to match content positions), so we fall back to
   // absolute-positioned rows.
   const fullHeight = totalLines * ROW_HEIGHT;
-  const spacerHeight = Math.max(Math.min(fullHeight, SAFE_MAX_SPACER_HEIGHT), ROW_HEIGHT);
+  // Non-virtualized mode renders every row to the DOM, so the spacer can grow
+  // to the natural document height — the SAFE_MAX_SPACER_HEIGHT cap (and the
+  // matching `factor` compression) only exists to keep virtualized mode within
+  // browser element-coord limits. In non-virtualized mode the DOM size will
+  // bound the document long before the spacer cap would.
+  const spacerHeight = virtualized
+    ? Math.max(Math.min(fullHeight, SAFE_MAX_SPACER_HEIGHT), ROW_HEIGHT)
+    : Math.max(fullHeight, ROW_HEIGHT);
   const scrollRange = Math.max(1, spacerHeight - containerHeight);
   const docRange = Math.max(0, fullHeight - containerHeight);
   const factor =
-    docRange === 0 || fullHeight <= SAFE_MAX_SPACER_HEIGHT ? 1 : docRange / scrollRange;
+    !virtualized || docRange === 0 || fullHeight <= SAFE_MAX_SPACER_HEIGHT
+      ? 1
+      : docRange / scrollRange;
   // DOM scrollTop is derived from docScrollTop (the state). Rounding to
   // integer matches what the browser will store anyway; the resulting wobble
   // passes through to `translateY` and cancels exactly at the row/wrapper
@@ -444,11 +465,12 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     return () => el.removeEventListener('wheel', onWheel);
   }, [factor, docRange]);
 
-  const startIdx = Math.max(0, Math.floor(docScrollTop / ROW_HEIGHT) - OVERSCAN);
-  const endIdx = Math.min(
-    totalLines,
-    Math.ceil((docScrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN,
-  );
+  const startIdx = virtualized
+    ? Math.max(0, Math.floor(docScrollTop / ROW_HEIGHT) - OVERSCAN)
+    : 0;
+  const endIdx = virtualized
+    ? Math.min(totalLines, Math.ceil((docScrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN)
+    : totalLines;
 
   // translateY shifts content from doc-pixel coords into the capped-spacer
   // coord system. Zero when factor==1; equals scrollTop - docScrollTop in

@@ -11,6 +11,8 @@ export interface TestViewerProps {
   showStatusBar?: boolean;
   /** A button after the viewer so tests can shift focus out and Tab back in. */
   withTrailingButton?: boolean;
+  /** Defaults to `true` — existing suites exercise the virtualized path. */
+  virtualized?: boolean;
   onViewportBlur?: (e: React.FocusEvent<HTMLDivElement>) => void;
   onViewportFocus?: (e: React.FocusEvent<HTMLDivElement>) => void;
 }
@@ -38,6 +40,7 @@ export function TestViewer({
   chunkSize,
   showStatusBar = true,
   withTrailingButton = false,
+  virtualized = true,
   onViewportBlur,
   onViewportFocus,
 }: TestViewerProps) {
@@ -50,7 +53,7 @@ export function TestViewer({
       <button type="button" data-testid="leading-button">
         before
       </button>
-      <JsonViewer.Root value={tree}>
+      <JsonViewer.Root value={tree} virtualized={virtualized}>
         <div className="tv-shell" style={shellStyle} data-testid="tv-shell">
           <JsonViewer.Viewport
             className="tv-viewport"

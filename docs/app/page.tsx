@@ -13,15 +13,17 @@ const EXT_LANG: Record<string, BundledLanguage> = {
   '.jsx': 'jsx',
   '.js': 'js',
   '.css': 'css',
+  '.json': 'json',
 };
 
-// Lower = earlier. Source files come before stylesheets.
+// Lower = earlier. Source files come before stylesheets and data.
 const EXT_ORDER: Record<string, number> = {
   '.tsx': 0,
   '.ts': 1,
   '.jsx': 2,
   '.js': 3,
   '.css': 4,
+  '.json': 5,
 };
 
 export type CodeFile = { name: string; html: string };

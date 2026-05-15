@@ -41,7 +41,7 @@ export default function Demo() {
         </button>
       </div>
       {fetchError && <div className={styles.error}>{fetchError}</div>}
-      <JsonViewer.Root value={tree}>
+      <JsonViewer.Root value={tree} virtualized>
         <JsonViewer.Viewport className={styles.viewport}>
           <JsonViewer.Content>
             {() => (

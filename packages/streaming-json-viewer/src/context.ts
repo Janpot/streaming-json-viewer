@@ -7,6 +7,7 @@ export interface RootContextValue {
   setFocused: (id: number | null) => void;
   toggleCollapse: (id: number) => void;
   instanceId: string;
+  virtualized: boolean;
 }
 
 export const RootContext = createContext<RootContextValue | null>(null);

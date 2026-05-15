@@ -12,7 +12,7 @@ export default function Demo() {
   const [stream] = useState(createDataStream);
   const { tree } = useStreamingNodes(stream);
   return (
-    <JsonViewer.Root value={tree}>
+    <JsonViewer.Root value={tree} virtualized>
       <ScrollArea.Root className={styles.scrollArea}>
         <ScrollArea.Viewport render={<JsonViewer.Viewport className={styles.viewport} />}>
           <JsonViewer.Content>

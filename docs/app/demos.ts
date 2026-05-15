@@ -1,8 +1,8 @@
-export const DEMO_NAMES = ['1.5mb', '15mb', 'jsonl', 'url', 'text', 'scrollarea'] as const;
+export const DEMO_NAMES = ['static', '15mb', 'jsonl', 'url', 'text', 'scrollarea'] as const;
 export type DemoName = (typeof DEMO_NAMES)[number];
 
 export const DEMO_LABELS: Record<DemoName, string> = {
-  '1.5mb': '~1.5MB',
+  static: 'static JSON',
   '15mb': '~15MB',
   jsonl: 'json lines',
   url: 'url',
@@ -10,4 +10,4 @@ export const DEMO_LABELS: Record<DemoName, string> = {
   scrollarea: 'custom scrollbars',
 };
 
-export const DEFAULT_DEMO: DemoName = '1.5mb';
+export const DEFAULT_DEMO: DemoName = 'static';

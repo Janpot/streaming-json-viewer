@@ -1,0 +1,54 @@
+{
+  "name": "streaming-json-viewer",
+  "version": "0.1.0",
+  "private": false,
+  "description": "A composable, user-styled React component for viewing JSON.",
+  "license": "MIT",
+  "keywords": ["json", "viewer", "tree", "streaming", "virtualized", "react"],
+  "engines": {
+    "node": ">=18"
+  },
+  "settings": {
+    "indent": 2,
+    "trailingComma": "all",
+    "singleQuote": true,
+    "wrap": {
+      "maxWidth": 100,
+      "breakOnComma": false
+    }
+  },
+  "contributors": [
+    {
+      "id": 1,
+      "name": "Ada Lovelace",
+      "email": "ada@example.com",
+      "active": true,
+      "roles": ["author", "maintainer"]
+    },
+    {
+      "id": 2,
+      "name": "Alan Turing",
+      "email": "alan@example.com",
+      "active": true,
+      "roles": ["reviewer"]
+    },
+    {
+      "id": 3,
+      "name": "Grace Hopper",
+      "email": null,
+      "active": false,
+      "roles": []
+    }
+  ],
+  "metrics": {
+    "stars": 128,
+    "forks": 7,
+    "openIssues": 3,
+    "lastReleaseAt": "2026-05-01T10:00:00.000Z"
+  },
+  "notes": [
+    "Renders the full tree when not virtualized.",
+    "Supports Ctrl-F find-on-page over every row.",
+    "Sticky headers still work with normal scroll containers."
+  ]
+}

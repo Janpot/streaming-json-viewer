@@ -11,7 +11,7 @@ export default function Demo() {
   const [stream] = useState(createDataStream);
   const { tree } = useStreamingNodes(stream);
   return (
-    <JsonViewer.Root value={tree}>
+    <JsonViewer.Root value={tree} virtualized>
       <JsonViewer.Viewport className={styles.viewport}>
         <JsonViewer.Content>
           {() => (
