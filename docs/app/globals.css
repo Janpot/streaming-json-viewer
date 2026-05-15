@@ -92,6 +92,7 @@ body {
 }
 
 .demo-actions {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 18px;
@@ -103,7 +104,7 @@ body {
   background: transparent;
   border: none;
   color: var(--fg-dim);
-  padding: 0;
+  padding: 4px 0;
   font: inherit;
   cursor: pointer;
   text-decoration: none;
@@ -114,6 +115,19 @@ body {
 }
 .demo-action[data-active] {
   color: var(--accent);
+}
+.demo-action-indicator {
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  height: 2px;
+  width: var(--active-tab-width);
+  translate: var(--active-tab-left) 0;
+  background: var(--accent);
+  transition-property: translate, width;
+  transition-duration: 200ms;
+  transition-timing-function: ease-in-out;
+  pointer-events: none;
 }
 
 .demo-input-row {

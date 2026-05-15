@@ -15,6 +15,8 @@ import {
   type KeyboardEventHandler,
   type ReactNode,
 } from 'react';
+import { useRender } from '@base-ui/react/use-render';
+import { SAFE_MAX_SPACER_HEIGHT } from './constants';
 import { RootContext, useRoot, type RootContextValue } from './context';
 import {
   deepestVisibleAncestor,
@@ -32,11 +34,6 @@ import { ParsedJson } from './sync';
 import type { ContainerNode, LineCursor } from './types';
 
 const OVERSCAN = 12;
-// Browsers cap the maximum height of a single element. Firefox is the strictest
-// (~17M px). We stay well below that and decouple the document offset from the
-// native scrollTop above this threshold so the viewer can render any number of
-// rows. See https://rednegra.net/blog/20260212-virtual-scroll/#technique-4-pixel-precise-scroll
-const SAFE_MAX_SPACER_HEIGHT = 8_000_000;
 
 export interface RootProps {
   /** A pre-built `ParsedJson` (from `ParsedJson.from` or the
@@ -127,7 +124,7 @@ function Root({ value, children }: RootProps) {
   return <RootContext.Provider value={ctx}>{children}</RootContext.Provider>;
 }
 
-export interface BodyProps {
+export interface ContentProps {
   children: () => ReactNode;
 }
 
@@ -137,10 +134,10 @@ export interface BodyProps {
  * (used to style the chain wrapper) and its render-prop (called once per
  * visible row + once per sticky pinned row, inside a LineContext provider).
  */
-function Body(_props: BodyProps): null {
+function Content(_props: ContentProps): null {
   return null;
 }
-Body.displayName = 'JsonViewer.Body';
+Content.displayName = 'JsonViewer.Content';
 
 export type GroupProps = Omit<HTMLAttributes<HTMLDivElement>, 'children'> & {
   children: (() => ReactNode) | ReactNode;
@@ -159,24 +156,27 @@ function Group({ children }: GroupProps): ReactNode {
 }
 Group.displayName = 'JsonViewer.Group';
 
-function findBodyRenderer(children: ReactNode): (() => ReactNode) | null {
+function findContentRenderer(children: ReactNode): (() => ReactNode) | null {
   let found: (() => ReactNode) | null = null;
-  let hasBody = false;
+  let hasContent = false;
   Children.forEach(children, (child) => {
-    if (isValidElement(child) && child.type === Body) {
-      hasBody = true;
-      const renderer = (child.props as BodyProps).children;
+    if (isValidElement(child) && child.type === Content) {
+      hasContent = true;
+      const renderer = (child.props as ContentProps).children;
       if (renderer) found = renderer;
     }
   });
-  if (!hasBody) return null;
+  if (!hasContent) return null;
   if (!found) {
-    throw new Error('JsonViewer.Body requires a render-prop child');
+    throw new Error('JsonViewer.Content requires a render-prop child');
   }
   return found;
 }
 
-export type ViewportProps = HTMLAttributes<HTMLDivElement> & { children?: ReactNode };
+export type ViewportProps = HTMLAttributes<HTMLDivElement> & {
+  children?: ReactNode;
+  render?: useRender.RenderProp;
+};
 
 const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   {
@@ -188,17 +188,18 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     onFocus: userOnFocus,
     onBlur: userOnBlur,
     role,
+    render,
     ...rest
   },
   forwardedRef,
 ) {
-  const bodyRenderer = findBodyRenderer(children);
-  if (!bodyRenderer) {
-    throw new Error('JsonViewer.Viewport requires a JsonViewer.Body child');
+  const contentRenderer = findContentRenderer(children);
+  if (!contentRenderer) {
+    throw new Error('JsonViewer.Viewport requires a JsonViewer.Content child');
   }
-  const groupElement = bodyRenderer();
+  const groupElement = contentRenderer();
   if (!isValidElement(groupElement) || groupElement.type !== Group) {
-    throw new Error('JsonViewer.Body render-prop must return a JsonViewer.Group element');
+    throw new Error('JsonViewer.Content render-prop must return a JsonViewer.Group element');
   }
   const { children: rowRenderer, ...groupProps } = groupElement.props as GroupProps;
   if (typeof rowRenderer !== 'function') {
@@ -218,12 +219,13 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   const [hasFocusWithin, setHasFocusWithin] = useState(false);
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
-  const [scrollTop, setScrollTop] = useState(0);
+  // Doc-space scroll position is the source of truth. The DOM `scrollTop` is
+  // derived as `round(docScrollTop / factor)` each render. Keeping doc-space
+  // as state means `factor` drift (e.g. while streaming grows `totalLines`)
+  // does not silently move the position — the visual content stays put while
+  // only the scrollbar thumb re-rounds.
+  const [docScrollTop, setDocScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(560);
-  // Extra document-space pixel offset on top of the linear scrollTop mapping.
-  // Used only when the document height exceeds the browser's element-height
-  // cap; gives us pixel precision regardless of total size.
-  const [localOffset, setLocalOffset] = useState(0);
   const programmaticScrollRef = useRef(false);
 
   const setRefs = useCallback(
@@ -238,46 +240,58 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   useLayoutEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
-    setContainerHeight(el.clientHeight);
+    setContainerHeight(Math.round(el.clientHeight));
     const ro = new ResizeObserver((entries) => {
-      for (const e of entries) setContainerHeight(e.contentRect.height);
+      for (const e of entries) setContainerHeight(Math.round(e.contentRect.height));
     });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
 
   // Geometry. When fullHeight exceeds SAFE_MAX_SPACER_HEIGHT, the spacer is
-  // capped and `factor` > 1 turns the scrollbar into a coarse navigator. The
-  // wheel handler keeps pixel precision via `localOffset`. In that mode the
-  // sticky-wrapper render path can't run (CSS sticky needs scroll positions to
-  // match content positions), so we fall back to absolute-positioned rows.
+  // capped and `factor` > 1 turns the scrollbar into a coarse navigator.
+  // In that mode the sticky-wrapper render path can't run (CSS sticky needs
+  // scroll positions to match content positions), so we fall back to
+  // absolute-positioned rows.
   const fullHeight = totalLines * ROW_HEIGHT;
   const spacerHeight = Math.max(Math.min(fullHeight, SAFE_MAX_SPACER_HEIGHT), ROW_HEIGHT);
   const scrollRange = Math.max(1, spacerHeight - containerHeight);
   const docRange = Math.max(0, fullHeight - containerHeight);
   const factor =
     docRange === 0 || fullHeight <= SAFE_MAX_SPACER_HEIGHT ? 1 : docRange / scrollRange;
-  const docScrollTop = factor === 1 ? scrollTop : scrollTop * factor + localOffset;
+  // DOM scrollTop is derived from docScrollTop (the state). Rounding to
+  // integer matches what the browser will store anyway; the resulting wobble
+  // passes through to `translateY` and cancels exactly at the row/wrapper
+  // composition because we no longer round at the inner positioning level.
+  const scrollTop =
+    factor === 1 ? Math.round(docScrollTop) : Math.round(docScrollTop / factor);
+
+  // Keep the DOM scrollbar in sync with the derived `scrollTop`. Fires when
+  // `docScrollTop` changes (user-driven via handlers below) and also when
+  // `factor` shifts under streaming (re-rounding may move the thumb by 1px).
+  // `programmaticScrollRef` suppresses the resulting `onScroll` echo so we
+  // don't round-trip the value back through event conversion.
+  useLayoutEffect(() => {
+    const el = viewportRef.current;
+    if (!el || el.scrollTop === scrollTop) return;
+    programmaticScrollRef.current = true;
+    el.scrollTop = scrollTop;
+  }, [scrollTop]);
 
   // Click-to-collapse on a sticky header should keep the row pinned at the
-  // viewport y where the user clicked. We set scroll synchronously alongside
-  // the collapse so the next render uses both the new tree and new scrollTop
-  // in the same React batch (no in-between frame).
+  // viewport y where the user clicked. setDocScrollTop runs synchronously
+  // alongside the collapse so the next render uses both the new tree and
+  // new doc position in the same React batch.
   const handleStickyToggle = useCallback(
     (id: number, lineIdx: number, slot: number) => {
       const targetDoc = Math.max(0, (lineIdx - slot) * ROW_HEIGHT);
-      const nextScrollTop = factor === 1 ? targetDoc : Math.round(targetDoc / factor);
-      const nextLocal = factor === 1 ? 0 : targetDoc - nextScrollTop * factor;
-      programmaticScrollRef.current = true;
-      if (viewportRef.current) viewportRef.current.scrollTop = nextScrollTop;
-      setScrollTop(nextScrollTop);
-      setLocalOffset(nextLocal);
+      setDocScrollTop(targetDoc);
       // toggleCollapse may repair focus up to `id` when the focused row
       // was a hidden descendant — make sure DOM focus follows.
       shouldFocusDomRef.current = true;
       toggleCollapse(id);
     },
-    [toggleCollapse, factor],
+    [toggleCollapse],
   );
 
   // Scroll a line into the visible band if it's outside it. The top
@@ -295,14 +309,9 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       if (lineTop < visibleTop) targetDoc = Math.max(0, lineTop - stickyGutter);
       else if (lineBottom > visibleBottom) targetDoc = Math.max(0, lineBottom - containerHeight);
       if (targetDoc < 0) return;
-      const nextScrollTop = factor === 1 ? targetDoc : Math.round(targetDoc / factor);
-      const nextLocal = factor === 1 ? 0 : targetDoc - nextScrollTop * factor;
-      programmaticScrollRef.current = true;
-      if (viewportRef.current) viewportRef.current.scrollTop = nextScrollTop;
-      setScrollTop(nextScrollTop);
-      setLocalOffset(nextLocal);
+      setDocScrollTop(targetDoc);
     },
-    [docScrollTop, containerHeight, factor],
+    [docScrollTop, containerHeight],
   );
 
   const moveFocus = useCallback(
@@ -409,37 +418,31 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   };
 
   const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const next = e.currentTarget.scrollTop;
-    setScrollTop(next);
     if (programmaticScrollRef.current) {
       programmaticScrollRef.current = false;
-    } else if (factor !== 1 && localOffset !== 0) {
-      // Native scrollbar drag — drop any fine offset so the document position
-      // matches the bar handle exactly.
-      setLocalOffset(0);
+    } else {
+      // User-initiated bar drag. Convert the DOM scrollTop back to doc-space.
+      // Sub-pixel precision is dropped (the bar is coarse navigation); the
+      // wheel handler below maintains precision for fine scrolling.
+      const next = e.currentTarget.scrollTop;
+      setDocScrollTop(factor === 1 ? next : next * factor);
     }
     userOnScroll?.(e);
   };
 
   // Pixel-precise wheel: when clipping is active, prevent native scaled scroll
-  // and advance the document offset by exactly deltaY, then resync the
-  // scrollbar handle.
+  // and advance the document offset by exactly deltaY. The layout effect above
+  // re-syncs the DOM scrollbar to the derived `scrollTop`.
   useEffect(() => {
     const el = viewportRef.current;
     if (!el || factor === 1) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const nextDoc = Math.max(0, Math.min(docRange, docScrollTop + e.deltaY));
-      const nextScrollTop = Math.round(nextDoc / factor);
-      const nextLocal = nextDoc - nextScrollTop * factor;
-      programmaticScrollRef.current = true;
-      el.scrollTop = nextScrollTop;
-      setScrollTop(nextScrollTop);
-      setLocalOffset(nextLocal);
+      setDocScrollTop((cur) => Math.max(0, Math.min(docRange, cur + e.deltaY)));
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, [factor, docRange, docScrollTop]);
+  }, [factor, docRange]);
 
   const startIdx = Math.max(0, Math.floor(docScrollTop / ROW_HEIGHT) - OVERSCAN);
   const endIdx = Math.min(
@@ -610,7 +613,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       // otherwise sibling wrappers' compressed bounds (which overlap by
       // RH*(factor-2)/factor in factor>1 mode) cause CSS sticky to pin
       // multiple opens at the same depth slot, painting on top of each other.
-      const openTopAbsolute = Math.round(lineIdx * ROW_HEIGHT + translateY - selfTopAbs);
+      const openTopAbsolute = lineIdx * ROW_HEIGHT + translateY - selfTopAbs;
       const stickyOpenCtx: LineContextValue = {
         node,
         parent,
@@ -648,7 +651,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
           // Close `top` relative to wrapper. Equals (subtree - 1)*RH when
           // factor==1; in factor>1 mode it's scroll-dependent so the close
           // tracks its true doc-coord position.
-          const closeTop = Math.round(closeLineIdx * ROW_HEIGHT + translateY - selfTopAbs);
+          const closeTop = closeLineIdx * ROW_HEIGHT + translateY - selfTopAbs;
           const closeCtx: LineContextValue = {
             node,
             parent,
@@ -675,9 +678,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
         }
       }
 
-      const wrapperTop = isOutermost
-        ? Math.round(selfTopAbs)
-        : Math.round(selfTopAbs - parentTopAbs);
+      const wrapperTop = isOutermost ? selfTopAbs : selfTopAbs - parentTopAbs;
 
       return (
         <div
@@ -711,8 +712,8 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     // parent wrapper's spacer y. Both reduce to flat-row coords because
     // `K*RH + translateY` is the row's spacer y in either case.
     const rowTop = isOutermost
-      ? Math.round(lineIdx * ROW_HEIGHT + translateY)
-      : Math.round(lineIdx * ROW_HEIGHT + translateY - parentTopAbs);
+      ? lineIdx * ROW_HEIGHT + translateY
+      : lineIdx * ROW_HEIGHT + translateY - parentTopAbs;
     const rowCtx: LineContextValue = {
       node,
       parent,
@@ -807,22 +808,23 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     userOnBlur?.(e);
   };
 
-  return (
-    <div
-      ref={setRefs}
-      className={className}
-      style={mergedStyle}
-      role={role ?? 'tree'}
-      onScroll={onScroll}
-      onKeyDown={onKeyDown}
-      onFocus={onFocus}
-      onBlur={onBlur}
-      {...rest}
-    >
-      {mainContent}
-    </div>
-  );
+  return useRender({
+    render,
+    ref: setRefs,
+    defaultTagName: 'div',
+    props: {
+      className,
+      style: mergedStyle,
+      role: role ?? 'tree',
+      onScroll,
+      onKeyDown,
+      onFocus,
+      onBlur,
+      ...rest,
+      children: mainContent,
+    },
+  });
 });
 
-export { Root, Viewport, Body, Group };
+export { Root, Viewport, Content, Group };
 export { Line, Trigger, LineContent } from './Line';

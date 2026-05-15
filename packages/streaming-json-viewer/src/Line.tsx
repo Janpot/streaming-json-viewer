@@ -44,7 +44,7 @@ export const LineContext = createContext<LineContextValue | null>(null);
 export function useLine(): LineContextValue {
   const ctx = useContext(LineContext);
   if (!ctx) {
-    throw new Error('useLine must be used inside a JsonViewer.Body row render');
+    throw new Error('useLine must be used inside a JsonViewer.Content row render');
   }
   return ctx;
 }

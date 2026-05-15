@@ -30,10 +30,12 @@
     "test:update-screenshots": "vitest run -u"
   },
   "peerDependencies": {
+    "@base-ui/react": ">=1.4.0",
     "react": ">=18",
     "react-dom": ">=18"
   },
   "devDependencies": {
+    "@base-ui/react": "^1.4.1",
     "@vitest/browser": "^4.1.5",
     "@vitest/browser-playwright": "^4.1.5",
     "playwright": "^1.59.1",

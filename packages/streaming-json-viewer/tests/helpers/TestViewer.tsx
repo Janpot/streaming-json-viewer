@@ -60,7 +60,7 @@ export function TestViewer({
             onBlur={onViewportBlur}
             onFocus={onViewportFocus}
           >
-            <JsonViewer.Body>
+            <JsonViewer.Content>
               {() => (
                 <JsonViewer.Group className="tv-group">
                   {() => (
@@ -73,7 +73,7 @@ export function TestViewer({
                   )}
                 </JsonViewer.Group>
               )}
-            </JsonViewer.Body>
+            </JsonViewer.Content>
           </JsonViewer.Viewport>
           {showStatusBar && (
             <div className="tv-status-bar">

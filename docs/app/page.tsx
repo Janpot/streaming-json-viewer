@@ -2,8 +2,8 @@ import { readdir, readFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { Suspense } from 'react';
 import { codeToHtml, type BundledLanguage } from 'shiki';
-import { CodeTabs } from './code-tabs';
 import { DemoApp } from './demo-app';
+import { DEMO_NAMES, type DemoName } from './demos';
 
 const THEME = 'github-dark';
 
@@ -24,7 +24,9 @@ const EXT_ORDER: Record<string, number> = {
   '.css': 4,
 };
 
-async function loadFolder(path: string) {
+export type CodeFile = { name: string; html: string };
+
+async function loadFolder(path: string): Promise<CodeFile[]> {
   const dir = join(process.cwd(), path);
   const entries = await readdir(dir);
   const files = entries
@@ -48,7 +50,9 @@ async function loadFolder(path: string) {
 }
 
 export default async function Page() {
-  const files = await loadFolder('demo');
+  const fileMap = Object.fromEntries(
+    await Promise.all(DEMO_NAMES.map(async (name) => [name, await loadFolder(`demo/${name}`)])),
+  ) as Record<DemoName, CodeFile[]>;
 
   return (
     <div className="app">
@@ -84,9 +88,8 @@ export default async function Page() {
         </p>
 
         <Suspense fallback={null}>
-          <DemoApp />
+          <DemoApp fileMap={fileMap} />
         </Suspense>
-        <CodeTabs files={files} />
       </div>
     </div>
   );

@@ -75,6 +75,9 @@ importers:
 
   packages/streaming-json-viewer:
     devDependencies:
+      '@base-ui/react':
+        specifier: ^1.4.1
+        version: 1.4.1(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@vitest/browser':
         specifier: ^4.1.5
         version: 4.1.5(vite@8.0.11(@types/node@22.19.17)(jiti@2.7.0))(vitest@4.1.5)

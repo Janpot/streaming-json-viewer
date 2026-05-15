@@ -42,7 +42,7 @@
   outline: none;
 }
 
-.viewport .line {
+.line {
   height: var(--row-height);
   line-height: var(--row-height);
   display: flex;
@@ -51,11 +51,11 @@
   padding-right: 16px;
   color: var(--fg);
 }
-.viewport .line[data-sticky] {
+.line[data-sticky] {
   background: var(--bg-sticky);
   box-shadow: inset 2px 0 0 var(--accent);
 }
-.viewport .line[data-sticky-last]::after {
+.line[data-sticky-last]::after {
   content: '';
   position: absolute;
   left: 0;
@@ -65,27 +65,27 @@
   background: linear-gradient(to bottom, rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0));
   pointer-events: none;
 }
-.viewport .line[data-clickable] {
+.line[data-clickable] {
   cursor: pointer;
 }
-.viewport .line[data-clickable]:hover {
+.line[data-clickable]:hover {
   background: var(--bg-hover);
 }
-.viewport .line[data-focused] {
+.line[data-focused] {
   background: var(--bg-hover);
 }
-.viewport .line:focus {
+.line:focus {
   outline: none;
 }
-.viewport .line:focus-visible {
+.line:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
-.viewport .trigger {
+.trigger {
   color: var(--fg-faint);
   transition: transform 80ms;
 }
-.viewport .trigger[data-state='open'] {
+.trigger[data-state='open'] {
   transform: rotate(90deg);
 }
 .viewport [data-token='property'] {

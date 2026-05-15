@@ -10,7 +10,7 @@ function Viewer({ value }: { value: unknown }) {
   return (
     <JsonViewer.Root value={value}>
       <JsonViewer.Viewport style={{ width: 400, height: 200 }} data-testid="viewport">
-        <JsonViewer.Body>
+        <JsonViewer.Content>
           {() => (
             <JsonViewer.Group>
               {() => (
@@ -20,7 +20,7 @@ function Viewer({ value }: { value: unknown }) {
               )}
             </JsonViewer.Group>
           )}
-        </JsonViewer.Body>
+        </JsonViewer.Content>
       </JsonViewer.Viewport>
     </JsonViewer.Root>
   );

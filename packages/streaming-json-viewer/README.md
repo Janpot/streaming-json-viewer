@@ -9,7 +9,7 @@ import { JsonViewer } from 'streaming-json-viewer';
 
 <JsonViewer.Root value={{ hello: 'world', items: [1, 2, 3] }}>
   <JsonViewer.Viewport style={{ flex: 1 }}>
-    <JsonViewer.Body>
+    <JsonViewer.Content>
       {() => (
         <JsonViewer.Group className="my-group">
           {() => (
@@ -22,7 +22,7 @@ import { JsonViewer } from 'streaming-json-viewer';
           )}
         </JsonViewer.Group>
       )}
-    </JsonViewer.Body>
+    </JsonViewer.Content>
   </JsonViewer.Viewport>
 </JsonViewer.Root>;
 ```
@@ -101,14 +101,14 @@ useStreamingNodes(
 
 ### `<JsonViewer.Viewport>`
 
-Renders the virtualized scroll surface and sticky ancestor headers. Forwards HTML props and `ref`. Requires a `<JsonViewer.Body />` child.
+Renders the virtualized scroll surface and sticky ancestor headers. Forwards HTML props and `ref`. Requires a `<JsonViewer.Content />` child. Accepts a `render` prop (base-ui convention) so the viewport element can be composed with other components — for example, `<ScrollArea.Viewport render={<JsonViewer.Viewport />}>` swaps in a base-ui custom scrollbar while preserving sticky-header behavior.
 
-### `<JsonViewer.Body>`
+### `<JsonViewer.Content>`
 
 Slot for the row renderer. Required as a child of `<Viewport>`. Its render-prop must return a `<JsonViewer.Group>`, whose own render-prop returns the row content. The library extracts the Group's static props (used to style the chain wrapper — see below) and calls Group's render-prop once per visible row and once per sticky pinned row, inside a `LineContext` provider.
 
 ```tsx
-<JsonViewer.Body>
+<JsonViewer.Content>
   {() => (
     <JsonViewer.Group className="my-group">
       {() => (
@@ -121,7 +121,7 @@ Slot for the row renderer. Required as a child of `<Viewport>`. Its render-prop 
       )}
     </JsonViewer.Group>
   )}
-</JsonViewer.Body>
+</JsonViewer.Content>
 ```
 
 Inside the inner render-prop, call `useLine()` to read the current row's node, depth, kind, and toggle.
