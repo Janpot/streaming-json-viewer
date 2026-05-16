@@ -17,9 +17,9 @@ pnpm dev         # run the docs site
 
 ## Testing
 
-`pnpm test` runs vitest browser tests against Chromium. On Linux it uses the locally installed browser. On macOS / Windows it transparently launches a pinned Playwright Docker image (`mcr.microsoft.com/playwright:v<installed-version>-noble`) and connects to a remote `playwright run-server` inside it, so screenshot baselines render under the same Linux Chromium that CI uses.
+`pnpm test` runs vitest browser tests against Chromium. The browser provider is wired explicitly in `vitest.config.ts` (no platform/env auto-detection): by default it launches a pinned Playwright Docker image (`mcr.microsoft.com/playwright:v<installed-version>-noble`) on every OS and connects to a remote `playwright run-server` inside it, so screenshot baselines always render under the same Linux Chromium that CI uses.
 
-Requirements on non-Linux hosts: Docker Desktop running. The first invocation pulls a ~2 GB image; subsequent runs spin up a container in a few seconds.
+Docker Desktop must be running. The first invocation pulls a ~2 GB image; subsequent runs spin up a container in a few seconds. To use host Chromium instead (faster local triage; visual snapshots will diverge from the Linux baselines), swap `browser.provider` in `vitest.config.ts` to the plain `playwright()` provider.
 
 - `pnpm test` — run once.
 - `pnpm -F streaming-json-viewer test:watch` — watch mode (container stays up between reruns).
