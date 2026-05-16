@@ -4,5 +4,3 @@ export { useLine } from './Line';
 export type { LineContextValue, LineProps, TriggerProps, LineContentProps } from './Line';
 export type { TreeNode } from './types';
 export { ParsedJson } from './sync';
-
-const BROKEN_SYNTAX = ;
