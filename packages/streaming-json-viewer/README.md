@@ -49,10 +49,10 @@ function StreamedViewer({ source }: { source: string | ReadableStream<Uint8Array
 
 ## Entry points
 
-| Import                                                | Pulls in                          | Use for                                                |
-| ----------------------------------------------------- | --------------------------------- | ------------------------------------------------------ |
-| `streaming-json-viewer`                               | components + `ParsedJson`         | rendering; sync conversion from any JS value           |
-| `streaming-json-viewer/streaming`                     | tokenizer + parser + ingest + hook | streaming a `string` or `ReadableStream` over time     |
+| Import                            | Pulls in                           | Use for                                            |
+| --------------------------------- | ---------------------------------- | -------------------------------------------------- |
+| `streaming-json-viewer`           | components + `ParsedJson`          | rendering; sync conversion from any JS value       |
+| `streaming-json-viewer/streaming` | tokenizer + parser + ingest + hook | streaming a `string` or `ReadableStream` over time |
 
 The core entry does not depend on the tokenizer / streaming code, so consumers who only render in-memory data don't pay for it.
 
@@ -60,10 +60,10 @@ The core entry does not depend on the tokenizer / streaming code, so consumers w
 
 ### `<JsonViewer.Root>`
 
-| Prop       | Type                | Description                                                                                                                                                                |
-| ---------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `value`    | `unknown`           | A `ParsedJson` instance (from `ParsedJson.from` or `useStreamingNodes`'s `tree`) or any raw JS value (auto-wrapped). Memoized by reference so a stable ref preserves state. |
-| `children` | `ReactNode`         | The parts (`Viewport`, etc.).                                                                                                                                              |
+| Prop       | Type        | Description                                                                                                                                                                 |
+| ---------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `value`    | `unknown`   | A `ParsedJson` instance (from `ParsedJson.from` or `useStreamingNodes`'s `tree`) or any raw JS value (auto-wrapped). Memoized by reference so a stable ref preserves state. |
+| `children` | `ReactNode` | The parts (`Viewport`, etc.).                                                                                                                                               |
 
 Renders no DOM element — sets up shared state (focus, collapse) for the parts.
 
@@ -110,9 +110,9 @@ Slot for the row renderer. Required as a child of `<Viewport>`. Its render-prop 
 ```tsx
 <JsonViewer.Content>
   {() => (
-    <JsonViewer.Group className="my-group">
+    <JsonViewer.Group>
       {() => (
-        <JsonViewer.Line className="my-line">
+        <JsonViewer.Line>
           <JsonViewer.Trigger>
             <MyChevron />
           </JsonViewer.Trigger>
@@ -120,6 +120,24 @@ Slot for the row renderer. Required as a child of `<Viewport>`. Its render-prop 
         </JsonViewer.Line>
       )}
     </JsonViewer.Group>
+  )}
+</JsonViewer.Content>
+```
+
+=>
+
+```tsx
+<JsonViewer.Content>
+  {() => (
+    <JsonViewer.Property>
+      <JsonViewer.Line>
+        <JsonViewer.Trigger>
+          <MyChevron />
+        </JsonViewer.Trigger>
+        <JsonViewer.LineContent />
+      </JsonViewer.Line>
+      <JsonViewer.Children />
+    </JsonViewer.Property>
   )}
 </JsonViewer.Content>
 ```

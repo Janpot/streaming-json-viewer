@@ -62,8 +62,11 @@ export function resolveDockerDiffPath(data: ResolvePathData): string {
 }
 
 export interface DockerizedPlaywrightOptions extends PlaywrightProviderOptions {
+  /** Container image. Default: pinned `mcr.microsoft.com/playwright` for the installed Playwright version. */
   image?: string;
   containerName?: string;
+  /** Log container lease/dedup activity to stderr. */
+  debug?: boolean;
 }
 
 export function dockerizedPlaywright(
@@ -86,8 +89,10 @@ class DockerizedPlaywrightProvider implements BrowserProvider {
   private inner: PlaywrightBrowserProvider;
   private leased = false;
   private dockerReady: Promise<void> | null = null;
+  private readonly options: DockerizedPlaywrightOptions;
 
   constructor(project: TestProject, options: DockerizedPlaywrightOptions) {
+    this.options = options;
     this.inner = new PlaywrightBrowserProvider(project, {
       ...options,
       connectOptions: {
@@ -134,22 +139,21 @@ class DockerizedPlaywrightProvider implements BrowserProvider {
     } finally {
       if (this.leased) {
         this.leased = false;
-        await releaseContainer(this.resolveImage());
+        await releaseContainer(this.resolveImage(), this.options.debug);
       }
     }
   }
 
   private resolveImage(): string {
     return (
-      process.env.SJV_DOCKER_IMAGE ??
-      `mcr.microsoft.com/playwright:v${resolvePlaywrightVersion()}-noble`
+      this.options.image ?? `mcr.microsoft.com/playwright:v${resolvePlaywrightVersion()}-noble`
     );
   }
 
   private ensureDocker(): Promise<void> {
     if (this.dockerReady) return this.dockerReady;
     this.dockerReady = (async () => {
-      const wsEndpoint = await acquireContainer(this.resolveImage());
+      const wsEndpoint = await acquireContainer(this.resolveImage(), this.options.debug);
       this.leased = true;
       const innerOptions = (this.inner as unknown as { options: PlaywrightProviderOptions })
         .options;
@@ -174,11 +178,11 @@ interface ContainerLease {
 const containers = new Map<string, ContainerLease>();
 let signalHandlersInstalled = false;
 
-async function acquireContainer(image: string): Promise<string> {
+async function acquireContainer(image: string, debug = false): Promise<string> {
   let lease = containers.get(image);
   if (!lease) {
     const name = `vitest-pw-${process.pid}-${Date.now().toString(36)}`;
-    if (process.env.SJV_DOCKER_DEBUG) console.error(`[dedup] START ${name} for ${image}`);
+    if (debug) console.error(`[dedup] START ${name} for ${image}`);
     lease = {
       refs: 0,
       name,
@@ -195,22 +199,22 @@ async function acquireContainer(image: string): Promise<string> {
     containers.set(image, lease);
   }
   lease.refs += 1;
-  if (process.env.SJV_DOCKER_DEBUG) {
+  if (debug) {
     console.error(`[dedup] ACQUIRE refs=${lease.refs} ${lease.name}`);
   }
   return lease.ready;
 }
 
-async function releaseContainer(image: string): Promise<void> {
+async function releaseContainer(image: string, debug = false): Promise<void> {
   const lease = containers.get(image);
   if (!lease) return;
   lease.refs -= 1;
-  if (process.env.SJV_DOCKER_DEBUG) {
+  if (debug) {
     console.error(`[dedup] RELEASE refs=${lease.refs} ${lease.name}`);
   }
   if (lease.refs > 0) return;
   containers.delete(image);
-  if (process.env.SJV_DOCKER_DEBUG) console.error(`[dedup] STOP ${lease.name}`);
+  if (debug) console.error(`[dedup] STOP ${lease.name}`);
   try {
     await execFileAsync('docker', ['rm', '-f', lease.name]);
   } catch {

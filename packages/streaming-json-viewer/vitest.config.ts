@@ -19,7 +19,10 @@ export default defineConfig({
     testTimeout: 15_000,
     browser: {
       enabled: true,
-      provider: dockerizedPlaywright(),
+      provider: dockerizedPlaywright({
+        image: process.env.SJV_DOCKER_IMAGE,
+        debug: Boolean(process.env.SJV_DOCKER_DEBUG),
+      }),
       headless: true,
       viewport: { width: 1024, height: 720 },
       instances: [{ browser: 'chromium' }],

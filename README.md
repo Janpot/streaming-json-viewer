@@ -24,10 +24,7 @@ Requirements on non-Linux hosts: Docker Desktop running. The first invocation pu
 - `pnpm test` — run once.
 - `pnpm -F streaming-json-viewer test:watch` — watch mode (container stays up between reruns).
 - `pnpm -F streaming-json-viewer test:update-screenshots` — regenerate baselines after intentional visual changes.
-- `SJV_DOCKER=0 pnpm test` — bypass Docker and use the host's Chromium (visual tests will diverge from CI; use only for triaging non-visual failures).
 
 ## TODO
 
-- want to toggle virtualization on/off
 - search
-- first line should not lok sticky if scrollTop = 0
