@@ -13,6 +13,9 @@ export interface TestViewerProps {
   withTrailingButton?: boolean;
   /** Defaults to `true` — existing suites exercise the virtualized path. */
   virtualized?: boolean;
+  /** Defaults to `true` (the library default). Set `false` to exercise the
+   * non-pinned path. */
+  sticky?: boolean;
   onViewportBlur?: (e: React.FocusEvent<HTMLDivElement>) => void;
   onViewportFocus?: (e: React.FocusEvent<HTMLDivElement>) => void;
 }
@@ -41,6 +44,7 @@ export function TestViewer({
   showStatusBar = true,
   withTrailingButton = false,
   virtualized = true,
+  sticky = true,
   onViewportBlur,
   onViewportFocus,
 }: TestViewerProps) {
@@ -53,7 +57,7 @@ export function TestViewer({
       <button type="button" data-testid="leading-button">
         before
       </button>
-      <JsonViewer.Root value={tree} virtualized={virtualized}>
+      <JsonViewer.Root value={tree} virtualized={virtualized} sticky={sticky}>
         <div className="tv-shell" style={shellStyle} data-testid="tv-shell">
           <JsonViewer.Viewport
             className="tv-viewport"

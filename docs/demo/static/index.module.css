@@ -21,6 +21,22 @@
   font-size: var(--font-size);
   line-height: var(--json-viewer-line-height);
 }
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  color: var(--fg-dim);
+  font-family: var(--font-mono);
+  font-size: var(--font-size);
+  cursor: pointer;
+  user-select: none;
+}
+.toggle input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 .viewport::-webkit-scrollbar {
   width: 10px;
   height: 10px;

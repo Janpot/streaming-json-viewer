@@ -26,7 +26,7 @@ export default function Demo() {
           parse
         </button>
       </div>
-      <JsonViewer.Root value={tree}>
+      <JsonViewer.Root value={tree} sticky>
         <JsonViewer.Viewport className={styles.viewport}>
           <JsonViewer.Content>
             {() => (

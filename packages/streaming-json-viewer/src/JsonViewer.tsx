@@ -48,9 +48,13 @@ export interface RootProps {
    * is rendered to the DOM, which simplifies small payloads, find-in-page,
    * accessibility, and snapshot tests. */
   virtualized?: boolean;
+  /** When `true`, container open rows pin to the top of the viewport as you
+   * scroll (the sticky-header chain). Defaults to `false` — every row in
+   * normal flow with no pinning. */
+  sticky?: boolean;
 }
 
-function Root({ value, children, virtualized = false }: RootProps) {
+function Root({ value, children, virtualized = false, sticky = false }: RootProps) {
   // Mirrors the fetch/URL/Request pattern: an instance is the unambiguous
   // pre-built handoff; anything else is auto-converted. Memoized so the
   // tree (and its ids) survives renders where `value` ref is stable.
@@ -132,6 +136,7 @@ function Root({ value, children, virtualized = false }: RootProps) {
     toggleCollapse,
     instanceId,
     virtualized,
+    sticky,
   };
 
   return <RootContext.Provider value={ctx}>{children}</RootContext.Provider>;
@@ -219,7 +224,8 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     throw new Error('JsonViewer.Group requires a render-prop child');
   }
   const renderRow = rowRenderer as () => ReactNode;
-  const { nodes, focusedId, setFocused, toggleCollapse, instanceId, virtualized } = useRoot();
+  const { nodes, focusedId, setFocused, toggleCollapse, instanceId, virtualized, sticky } =
+    useRoot();
   const totalLines = nodes.length === 0 ? 0 : nodes[0]!.subtreeLines;
   const shouldFocusDomRef = useRef(false);
   // The focused row's DOM element from the previous commit, plus whether it
@@ -605,11 +611,13 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
         kind: 'open',
         depth,
         lineIdx,
-        isSticky: pinned && (lineIdx - depth) * ROW_HEIGHT < docScrollTop,
-        isStickyLast: id === deepestVisuallyStickyId,
-        position: 'sticky',
-        top: 'calc(var(--json-viewer-depth) * var(--json-viewer-line-height))',
-        zIndex: 100 - depth,
+        isSticky: sticky && pinned && (lineIdx - depth) * ROW_HEIGHT < docScrollTop,
+        isStickyLast: sticky && id === deepestVisuallyStickyId,
+        position: sticky ? 'sticky' : 'static',
+        top: sticky
+          ? 'calc(var(--json-viewer-depth) * var(--json-viewer-line-height))'
+          : undefined,
+        zIndex: sticky ? 100 - depth : undefined,
         toggle: pinned
           ? () => handleStickyToggle(id, lineIdx, depth)
           : () => toggleCollapse(id),
@@ -645,8 +653,9 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
             // to this close row's top; the wrapper's compensating
             // `padding-bottom` (below) restores the border box so flow height
             // is unchanged. Net: sticky (clamped to the content box) hands the
-            // open header off one row earlier.
-            marginBottom: 'calc(-1 * var(--json-viewer-line-height))',
+            // open header off one row earlier. Skipped entirely when sticky is
+            // off (no header to hand off, so no margin/padding pair needed).
+            marginBottom: sticky ? 'calc(-1 * var(--json-viewer-line-height))' : undefined,
             toggle: () => toggleCollapse(id),
             isFocused: false,
             hasFocus: false,
@@ -678,7 +687,9 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
             // CSS sticky's push-up hand-off fires one line-height earlier.
             // Only when the close row is in flow here. box-sizing explicit so
             // a consumer global reset can't change how the padding composes.
-            ...(closeNode != null
+            // Gated on `sticky`: it solely compensates the close row's
+            // negative margin, which is itself absent when sticky is off.
+            ...(sticky && closeNode != null
               ? {
                   boxSizing: 'border-box' as const,
                   paddingBottom: 'var(--json-viewer-line-height)',

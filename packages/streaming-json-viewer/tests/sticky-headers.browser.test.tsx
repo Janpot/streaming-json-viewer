@@ -129,6 +129,40 @@ describe('sticky headers', () => {
     expect(Math.abs(afterTop - beforeTop)).toBeLessThanOrEqual(ROW_HEIGHT * 1.5);
   });
 
+  test('sticky={false} — no row pins; all rows stay static while scrolled', async () => {
+    const screen = await render(
+      <TestViewer value={makeDeeplyNestedFixture(8)} height={260} sticky={false} />,
+    );
+    await waitForStatus('done');
+    const viewport = screen.getByTestId('tv-viewport').element() as HTMLDivElement;
+
+    viewport.scrollTop = 6 * ROW_HEIGHT;
+    viewport.dispatchEvent(new Event('scroll', { bubbles: true }));
+    await settle();
+
+    const rows = Array.from(viewport.querySelectorAll<HTMLElement>('.tv-line'));
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(getComputedStyle(row).position).toBe('static');
+    }
+    // The scroll-state highlight is meaningless without pinning.
+    expect(viewport.querySelectorAll('[data-sticky]').length).toBe(0);
+  });
+
+  test('screenshot — sticky disabled, scrolled', async () => {
+    const screen = await render(
+      <TestViewer value={makeDeeplyNestedFixture(8)} height={260} sticky={false} />,
+    );
+    await waitForStatus('done');
+    const viewport = screen.getByTestId('tv-viewport').element() as HTMLDivElement;
+    viewport.scrollTop = 6 * ROW_HEIGHT;
+    await settle();
+
+    await expect
+      .element(screen.getByTestId('tv-viewport'))
+      .toMatchScreenshot('sticky-disabled-scrolled');
+  });
+
   test('screenshot — stacked sticky chain', async () => {
     const screen = await render(<TestViewer value={makeDeeplyNestedFixture(8)} height={260} />);
     await waitForStatus('done');

@@ -8,6 +8,7 @@ export interface RootContextValue {
   toggleCollapse: (id: number) => void;
   instanceId: string;
   virtualized: boolean;
+  sticky: boolean;
 }
 
 export const RootContext = createContext<RootContextValue | null>(null);
