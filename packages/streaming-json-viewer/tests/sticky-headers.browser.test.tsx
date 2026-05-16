@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { userEvent } from 'vitest/browser';
 import { TestViewer } from './helpers/TestViewer';
-import { makeDeeplyNestedFixture, makeMediumFixture } from './helpers/fixtures';
+import { makeDeeplyNestedFixture, makeMediumFixture, makePushUpFixture } from './helpers/fixtures';
 import { waitForStatus } from './helpers/wait';
 
 const ROW_HEIGHT = 22;
@@ -140,5 +140,45 @@ describe('sticky headers', () => {
     await expect
       .element(screen.getByTestId('tv-viewport'))
       .toMatchScreenshot('stacked-sticky-chain');
+  });
+
+  // Gates the content-box-clamp assumption behind the wrapper padding-bottom:
+  // when an ancestor's close row is Δ below the depth slot, CSS sticky must
+  // push the pinned header up by exactly (ROW_HEIGHT − Δ). If the engine
+  // clamped to the padding/border box instead, padding-bottom would not move
+  // the trigger and the header would stay pinned — failing the mid/gone cases.
+  test('sticky header is pushed up by exactly the close-row overlap', async () => {
+    const RH = ROW_HEIGHT;
+    // makePushUpFixture(): `head` array open=line 1 (depth 1), close=line 42.
+    const d = 1;
+    const cl = 42;
+    const screen = await render(<TestViewer value={makePushUpFixture()} height={300} />);
+    await waitForStatus('done');
+    const viewport = screen.getByTestId('tv-viewport').element() as HTMLDivElement;
+
+    const headRelTop = async (delta: number): Promise<number> => {
+      // Bring `head`'s close row to `slot + delta` from the viewport top.
+      viewport.scrollTop = cl * RH - d * RH - delta;
+      viewport.dispatchEvent(new Event('scroll', { bubbles: true }));
+      await settle();
+      const header = Array.from(
+        viewport.querySelectorAll<HTMLElement>('[role="treeitem"]'),
+      ).find((el) => el.querySelector('[data-token="property"]')?.textContent === '"head"');
+      if (!header) throw new Error('head header not found');
+      return header.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
+    };
+
+    const slot = d * RH;
+    const pinned2 = await headRelTop(2 * RH); // close 2 rows below → fully pinned
+    const pinned1 = await headRelTop(RH); // close exactly 1 row below → still pinned
+    const mid = await headRelTop(RH / 2); // close ½ row below → pushed up RH/2
+    const gone = await headRelTop(0); // close at the slot → fully handed off
+
+    expect(Math.abs(pinned2 - slot)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(pinned1 - slot)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(mid - (slot - RH / 2))).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(gone - (slot - RH))).toBeLessThanOrEqual(1.5);
+    // Essence of the gate: the close row actually drives the push-up.
+    expect(pinned2 - mid).toBeGreaterThanOrEqual(RH / 2 - 1.5);
   });
 });

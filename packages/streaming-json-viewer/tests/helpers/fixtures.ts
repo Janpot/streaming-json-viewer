@@ -68,6 +68,25 @@ export function makeDeeplyNestedFixture(depth = 6): string {
 }
 
 /**
+ * Root object with a big `head` array at depth 1, followed by enough trailing
+ * scalar keys that `head`'s close row can be scrolled all the way up to its
+ * depth slot. Used to assert the sticky-header push-up geometry.
+ *
+ * Line layout (root object rendered at depth 0):
+ *   0: `{`            1: `"head": [`   2..(arrayCount+1): numbers
+ *   arrayCount+2: `]` (head close, depth 1)
+ *   then `trailing` scalar keys, then root `}`.
+ * With the defaults: head open=1, head close=42.
+ */
+export function makePushUpFixture(arrayCount = 40, trailing = 20): string {
+  const obj: Record<string, unknown> = {
+    head: Array.from({ length: arrayCount }, (_, i) => i),
+  };
+  for (let i = 0; i < trailing; i++) obj[`t${i}`] = i;
+  return JSON.stringify(obj);
+}
+
+/**
  * JSONL fixture: `count` separate top-level objects, one per line. The lib
  * accepts JSONL (multiValue parser) and folds the lines into a transparent
  * root array, so each line is one visible row at depth 0.

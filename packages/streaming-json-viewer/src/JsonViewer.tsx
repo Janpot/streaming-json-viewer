@@ -614,14 +614,17 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       // Slice the wrapper to what's rendered. Top line = the open row when
       // it's in the window, else the window start (the open is a pinned
       // ancestor scrolled above, still rendered as the sticky header). Bottom
-      // line = the close row when it's in the window (wrapper.bottom ==
-      // closeRow.top, close row hangs one RH below the box so sticky push-up
-      // fires there), else the window end. We always reach here with
-      // closeLineIdx >= startIdx (a fully-above subtree is skipped at the top
-      // of renderNode), so `closeLineIdx < endIdx` means the close is
-      // rendered.
+      // line = one past the close row when it's in the window (so the border
+      // box encloses the close row as its last row), else the window end. We
+      // always reach here with closeLineIdx >= startIdx (a fully-above subtree
+      // is skipped at the top of renderNode), so `closeLineIdx < endIdx` means
+      // the close is rendered. The non-collapsed wrapper carries
+      // `padding-bottom: 1lh` (below), so its *content* box still ends at the
+      // close row's top — CSS sticky clamps the open header to the content
+      // box, so the push-up still fires exactly at closeRow.top while the
+      // close row sits inside the border box rather than hanging below it.
       const wTopLine = Math.max(lineIdx, startIdx);
-      const wBotLine = closeLineIdx < endIdx ? closeLineIdx : endIdx;
+      const wBotLine = closeLineIdx < endIdx ? closeLineIdx + 1 : endIdx;
       const selfTopAbs = absY(wTopLine);
       const wrapperHeight = collapsed
         ? ROW_HEIGHT
@@ -671,8 +674,10 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
         }
 
         if (closeLineIdx >= startIdx && closeLineIdx < endIdx) {
-          // Close `top` relative to wrapper. Equals wrapperHeight (the close
-          // row sits at the wrapper's bottom edge and hangs one RH below it).
+          // Close `top` relative to wrapper. Equals wrapperHeight - ROW_HEIGHT:
+          // the close row sits in the wrapper's bottom padding band (its last
+          // row). Sticky clamps the open header to the content box just above
+          // it, so push-up still triggers at the close row's top.
           const closeTop = absY(closeLineIdx) - selfTopAbs;
           const closeCtx: LineContextValue = {
             node,
@@ -714,6 +719,15 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
             left: 0,
             right: 0,
             height: wrapperHeight,
+            // Set box-sizing explicitly so a consumer global reset (e.g.
+            // `* { box-sizing: border-box }`) can't change the height/padding
+            // math: with border-box the content box bottom = height -
+            // paddingBottom. The non-collapsed wrapper reserves its last row
+            // as padding so its content box ends at the close row's top — CSS
+            // sticky clamps the open header to that content box, reproducing
+            // the push-up while the close row stays inside the border box.
+            boxSizing: 'border-box',
+            paddingBottom: collapsed ? undefined : 'var(--json-viewer-line-height)',
             // `--json-viewer-depth` lets the sticky open row compose its pin offset as
             // `calc(var(--json-viewer-depth) * var(--json-viewer-line-height))` — it's inherited
             // by the open row, this wrapper's only in-flow child.
