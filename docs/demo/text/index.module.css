@@ -91,7 +91,7 @@
 .viewport [data-token='property'] {
   color: var(--token-key);
 }
-.viewport [data-token='colon'] {
+.viewport [data-token='punctuation'] {
   color: var(--fg-faint);
 }
 .viewport [data-token='bracket'] {

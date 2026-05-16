@@ -103,7 +103,7 @@ body {
 .tv-viewport [data-token='property'] {
   color: var(--token-key);
 }
-.tv-viewport [data-token='colon'] {
+.tv-viewport [data-token='punctuation'] {
   color: var(--fg-faint);
 }
 .tv-viewport [data-token='bracket'] {

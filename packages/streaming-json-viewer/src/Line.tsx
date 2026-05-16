@@ -110,12 +110,37 @@ function countLabel(node: ContainerNode, count: number): string {
   return count === 1 ? 'key' : 'keys';
 }
 
+/**
+ * True when this row visually terminates a value that has a following sibling
+ * in its parent container — i.e., the rendered JSON needs a trailing comma
+ * after this row's value. Skipped under a transparent parent (e.g. JSONL
+ * records, which are not comma-separated).
+ */
+function needsTrailingComma(ctx: LineContextValue): boolean {
+  const { node, parent, kind } = ctx;
+  if (!parent || (parent.type !== 'object' && parent.type !== 'array')) return false;
+  const p = parent as ContainerNode;
+  if (p.transparent) return false;
+  if (node.siblingIdx >= p.childIds.length - 1) return false;
+  if (kind === 'close') return true;
+  const isContainer = node.type === 'object' || node.type === 'array';
+  if (!isContainer) return true;
+  const c = node as ContainerNode;
+  return c.collapsed || c.childIds.length === 0;
+}
+
+const Comma = () => (
+  <span data-token="punctuation" aria-hidden="true">
+    ,
+  </span>
+);
+
 export type LineContentProps = Omit<HTMLAttributes<HTMLSpanElement>, 'children'>;
 
 /**
  * Renders the tokenized content of a row inside a `<span data-token="content">`.
- * Emits the same per-token spans as before (`data-token="property" | "colon" |
- * "bracket" | "string" | "number" | "boolean" | "null" | "ellipsis" | "count"`).
+ * Emits per-token spans (`data-token="property" | "punctuation" | "bracket" |
+ * "string" | "number" | "boolean" | "null" | "ellipsis" | "count"`).
  */
 export function LineContent(props: LineContentProps) {
   const ctx = useLine();
@@ -123,13 +148,18 @@ export function LineContent(props: LineContentProps) {
   const { isContainer, empty, collapsed } = getLineShape(ctx);
   const showKey = kind !== 'close' && parent && parent.type === 'object' && node.key !== null;
 
+  const trailingComma = needsTrailingComma(ctx);
+
   let content: ReactNode;
   if (kind === 'close') {
     const close = node.type === 'object' ? '}' : ']';
     content = (
-      <span data-token="bracket" aria-hidden="true">
-        {close}
-      </span>
+      <>
+        <span data-token="bracket" aria-hidden="true">
+          {close}
+        </span>
+        {trailingComma && <Comma />}
+      </>
     );
   } else if (isContainer) {
     const c = node as ContainerNode;
@@ -142,7 +172,7 @@ export function LineContent(props: LineContentProps) {
         {showKey && (
           <>
             <span data-token="property">&quot;{node.key}&quot;</span>
-            <span data-token="colon" aria-hidden="true">
+            <span data-token="punctuation" aria-hidden="true">
               :{' '}
             </span>
           </>
@@ -151,9 +181,12 @@ export function LineContent(props: LineContentProps) {
           {open}
         </span>
         {empty ? (
-          <span data-token="bracket" aria-hidden="true">
-            {close}
-          </span>
+          <>
+            <span data-token="bracket" aria-hidden="true">
+              {close}
+            </span>
+            {trailingComma && <Comma />}
+          </>
         ) : collapsed ? (
           <>
             <span data-token="ellipsis" aria-hidden="true">
@@ -162,6 +195,7 @@ export function LineContent(props: LineContentProps) {
             <span data-token="bracket" aria-hidden="true">
               {close}
             </span>
+            {trailingComma && <Comma />}
             <span data-token="count">
               {count} {label}
             </span>
@@ -180,12 +214,13 @@ export function LineContent(props: LineContentProps) {
         {showKey && (
           <>
             <span data-token="property">&quot;{node.key}&quot;</span>
-            <span data-token="colon" aria-hidden="true">
+            <span data-token="punctuation" aria-hidden="true">
               :{' '}
             </span>
           </>
         )}
         <span data-token={token}>{text}</span>
+        {trailingComma && <Comma />}
       </>
     );
   }
