@@ -31,17 +31,16 @@ Library-only (`pnpm -F streaming-json-viewer …`):
 - `test` — `vitest run` (browser mode, single pass)
 - `test:watch` — vitest watch mode; container stays up between reruns
 - `test:update-screenshots` — `vitest run -u` after intentional visual changes
-- `test:install` — `playwright install chromium` (only needed for `SJV_DOCKER=0`)
+- `test:install` — `playwright install chromium` (only needed when using the host `playwright()` provider; the dockerized provider ships its own browser)
 
 Run a single test file: `pnpm -F streaming-json-viewer test tests/<name>.browser.test.tsx`. Filter by name: `... test -t "<pattern>"`.
 
 ## Browser test setup
 
-`pnpm test` runs Vitest browser tests against Chromium.
+`pnpm test` runs Vitest browser tests against Chromium. The browser provider is wired explicitly in `vitest.config.ts` — there is no platform/env auto-detection.
 
-- **Linux:** uses the host's Chromium.
-- **macOS / Windows:** transparently launches a pinned `mcr.microsoft.com/playwright:v<version>-noble` Docker container and connects to `playwright run-server` inside it. This is so screenshot baselines render under the same Linux Chromium that CI uses. Docker Desktop must be running. First invocation pulls ~2 GB; subsequent runs are fast.
-- **`SJV_DOCKER=0`:** bypass Docker, use host Chromium. Visual snapshots will diverge from CI baselines — only useful for triaging non-visual failures.
+- **Default (`dockerizedPlaywright()` in `vitest.config.ts`):** on every OS, launches a pinned `mcr.microsoft.com/playwright:v<version>-noble` Docker container and connects to `playwright run-server` inside it, so screenshot baselines always render under the same Linux Chromium. Docker Desktop must be running. First invocation pulls ~2 GB; subsequent runs are fast.
+- **Host Chromium:** swap `browser.provider` in `vitest.config.ts` to the plain `playwright()` provider (and remove the `resolveDocker*Path` overrides). Faster local triage, but visual snapshots will diverge from the Linux baselines.
 
 Screenshot baselines live in `packages/streaming-json-viewer/tests/__screenshots__/`.
 

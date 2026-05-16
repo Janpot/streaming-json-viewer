@@ -78,6 +78,9 @@ importers:
       '@base-ui/react':
         specifier: ^1.4.1
         version: 1.4.1(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.17
       '@vitest/browser':
         specifier: ^4.1.5
         version: 4.1.5(vite@8.0.11(@types/node@22.19.17)(jiti@2.7.0))(vitest@4.1.5)
@@ -93,6 +96,9 @@ importers:
       react-dom:
         specifier: ^19.0.0
         version: 19.2.6(react@19.2.6)
+      rolldown:
+        specifier: 1.0.0-beta.8-commit.151352b
+        version: 1.0.0-beta.8-commit.151352b(typescript@5.9.3)
       tsdown:
         specifier: ^0.9.0
         version: 0.9.9(typescript@5.9.3)

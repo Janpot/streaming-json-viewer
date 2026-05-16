@@ -7,7 +7,6 @@ import { promisify } from 'node:util';
 import { defineBrowserProvider } from '@vitest/browser';
 import {
   PlaywrightBrowserProvider,
-  playwright,
   type PlaywrightProviderOptions,
 } from '@vitest/browser-playwright';
 import type {
@@ -21,12 +20,6 @@ const execFileAsync = promisify(execFile);
 
 const SERVER_PORT_IN_CONTAINER = 5555;
 const STARTUP_TIMEOUT_MS = 30_000;
-
-function isDockerActive(): boolean {
-  if (process.env.SJV_DOCKER === '0') return false;
-  if (process.env.SJV_DOCKER === '1') return true;
-  return process.platform !== 'linux';
-}
 
 type ResolvePathData = {
   arg: string;
@@ -42,30 +35,29 @@ type ResolvePathData = {
 
 /**
  * `toMatchScreenshot.resolveScreenshotPath` override that pins the platform
- * segment to `linux` whenever the dockerized provider is active. Without this,
- * `pnpm test` on macOS writes `*-darwin.png` (host platform) but the bytes
- * came from Linux Chromium — and CI then looks for `*-linux.png`.
+ * segment to `linux`. The dockerized provider always renders under Linux
+ * Chromium, so without this `pnpm test` on macOS would write `*-darwin.png`
+ * (host platform) while the bytes are Linux — and CI then looks for
+ * `*-linux.png`. Only wire this in when using {@link dockerizedPlaywright}.
  */
 export function resolveDockerScreenshotPath(data: ResolvePathData): string {
-  const platform = isDockerActive() ? 'linux' : data.platform;
   return resolvePath(
     data.root,
     data.testFileDirectory,
     data.screenshotDirectory,
     data.testFileName,
-    `${data.arg}-${data.browserName}-${platform}${data.ext}`,
+    `${data.arg}-${data.browserName}-linux${data.ext}`,
   );
 }
 
 /** Companion to {@link resolveDockerScreenshotPath} for diff/actual artifacts. */
 export function resolveDockerDiffPath(data: ResolvePathData): string {
-  const platform = isDockerActive() ? 'linux' : data.platform;
   return resolvePath(
     data.root,
     data.attachmentsDir,
     data.testFileDirectory,
     data.testFileName,
-    `${data.arg}-${data.browserName}-${platform}${data.ext}`,
+    `${data.arg}-${data.browserName}-linux${data.ext}`,
   );
 }
 
@@ -77,9 +69,6 @@ export interface DockerizedPlaywrightOptions extends PlaywrightProviderOptions {
 export function dockerizedPlaywright(
   options: DockerizedPlaywrightOptions = {},
 ): BrowserProviderOption<DockerizedPlaywrightOptions> {
-  if (!isDockerActive()) {
-    return playwright(options) as BrowserProviderOption<DockerizedPlaywrightOptions>;
-  }
   return defineBrowserProvider<DockerizedPlaywrightOptions>({
     name: 'dockerized-playwright',
     supportedBrowser: ['chromium', 'firefox', 'webkit'],
@@ -264,7 +253,7 @@ async function ensureDockerDaemon(): Promise<void> {
         ? 'Docker CLI not found on PATH.'
         : 'Cannot reach the Docker daemon.';
     throw new Error(
-      `[dockerized-playwright] ${message} Start Docker Desktop, or set SJV_DOCKER=0 to bypass.`,
+      `[dockerized-playwright] ${message} Start Docker Desktop, or switch the browser provider in vitest.config.ts to bypass.`,
     );
   }
 }
