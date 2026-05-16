@@ -156,7 +156,7 @@ export type GroupProps = Omit<HTMLAttributes<HTMLDivElement>, 'children'> & {
 };
 
 /**
- * Slot/marker for the chain wrapper. Place inside `<JsonViewer.Body>`'s
+ * Slot/marker for the chain wrapper. Returned by `<JsonViewer.Content>`'s
  * render-prop. Its props (`className`, `style`, `data-*`, ...) are applied to
  * each chain-wrapper `<div>` the library renders. Its `children` render-prop
  * is called once per visible row to produce the row content. If rendered
@@ -261,14 +261,15 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   }, []);
 
   // Geometry. When fullHeight exceeds SAFE_MAX_SPACER_HEIGHT, the spacer is
-  // capped and `factor` > 1 turns the scrollbar into a coarse navigator.
-  // In that mode the sticky-wrapper render path can't run (CSS sticky needs
-  // scroll positions to match content positions), so we fall back to
-  // absolute-positioned rows.
+  // capped and `factor` > 1 turns the scrollbar into a coarse navigator. The
+  // row/wrapper render path is identical regardless of factor (see `absY`
+  // below); factor only feeds the scrollbar mapping and the single
+  // `translateY` offset that shifts the rendered window into the capped
+  // spacer.
   const fullHeight = totalLines * ROW_HEIGHT;
   // Non-virtualized mode renders every row to the DOM, so the spacer can grow
   // to the natural document height — the SAFE_MAX_SPACER_HEIGHT cap (and the
-  // matching `factor` compression) only exists to keep virtualized mode within
+  // matching `factor` mapping) only exists to keep virtualized mode within
   // browser element-coord limits. In non-virtualized mode the DOM size will
   // bound the document long before the spacer cap would.
   const spacerHeight = virtualized
@@ -281,9 +282,9 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       ? 1
       : docRange / scrollRange;
   // DOM scrollTop is derived from docScrollTop (the state). Rounding to
-  // integer matches what the browser will store anyway; the resulting wobble
-  // passes through to `translateY` and cancels exactly at the row/wrapper
-  // composition because we no longer round at the inner positioning level.
+  // integer matches what the browser will store anyway; the rounding wobble
+  // passes through `translateY` and cancels at the row/wrapper composition
+  // (inner positions are not rounded again).
   const scrollTop =
     factor === 1 ? Math.round(docScrollTop) : Math.round(docScrollTop / factor);
 
@@ -472,9 +473,9 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     ? Math.min(totalLines, Math.ceil((docScrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN)
     : totalLines;
 
-  // translateY shifts content from doc-pixel coords into the capped-spacer
-  // coord system. Zero when factor==1; equals scrollTop - docScrollTop in
-  // pixel-cap mode so outermost positions land at the right viewport y.
+  // Offsets the rendered window into the capped spacer: with the browser at
+  // `scrollTop`, a child at spacer-y `K*RH + translateY` (see `absY`) paints
+  // at viewport-y `K*RH - docScrollTop`. Zero when factor==1 (no cap).
   const translateY = scrollTop - docScrollTop;
 
   // Walk root → deepest non-transparent ancestor whose body covers the
@@ -545,34 +546,32 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     }
   }
 
-  // Wrappers use delta-compensated positions in spacer-DOM coords so they
-  // stay bounded by the spacer (which is capped at SAFE_MAX_SPACER_HEIGHT).
-  // Without this, in factor>1 mode the outermost wrapper's top would be a
-  // huge negative number (= translateY) and its height would be the full
-  // uncompressed document height — both blow past browser element-coord
-  // limits (Firefox ~17M, Chrome ~33M) and the wrapper fails to lay out.
-  // The depth*RH*delta term shifts wrappers so CSS sticky's `top: depth*RH`
-  // pin/pushup transitions still fire at the correct doc moments.
-  // In factor==1 mode delta=0 and these formulas reduce to lineIdx*RH /
-  // (subtree-1)*RH respectively — i.e. uncompressed natural positions.
-  const delta = (factor - 1) / factor;
-  const wrapperTopAbsFn = (lineIdx: number, depth: number) =>
-    (lineIdx * ROW_HEIGHT) / factor + depth * ROW_HEIGHT * delta;
+  // One layout model for both factor==1 and factor>1. Every row/wrapper is
+  // laid out in natural coords; `absY(line)` is that flat line's position in
+  // spacer-DOM coords. With the browser scrolled to `scrollTop`, absY(line)
+  // paints at the correct viewport y (`line*RH - docScrollTop`) in both
+  // regimes. `translateY` is 0 when factor==1 and non-zero only in factor>1,
+  // where it is the single offset that shifts the rendered window into the
+  // capped spacer; it cancels in every parent→child position difference, so
+  // it effectively only offsets the outermost element.
+  const absY = (line: number) => line * ROW_HEIGHT + translateY;
 
   // Recursive render — every container becomes a wrapper containing its
-  // sticky open, visible interior children, and an absolute close row.
-  // Wrapper positions are compressed (delta-compensated); rows inside a
-  // wrapper compute their `top` dynamically against the wrapper's spacer y
-  // (`row K spacer y = K*RH + translateY` in flat-row terms; subtract
-  // wrapperTopAbs to get the row's `top` relative to its wrapper).
-  // In factor==1 the dynamic formula reduces to a static `(K - L) * RH`.
+  // sticky open, visible interior children, and an absolute close row. Each
+  // wrapper is sized to its *rendered slice*: clamped to the open row when
+  // that row is in the window, and to the close row when that row is in the
+  // window (so wrapper.bottom == closeRow.top and CSS sticky's push-up
+  // hand-off fires there). In the deep middle, where neither edge is
+  // rendered, the wrapper just spans the visible slice — which keeps the
+  // sticky open pinned at depth*RH. A wrapper is therefore never taller than
+  // the slice, so no element approaches browser element-coord limits
+  // regardless of document size, and sibling wrappers span disjoint line
+  // ranges and never overlap.
   //
-  // KNOWN ISSUE (see EXPERIMENT_NOTES.md): in factor>1 mode with deeply
-  // nested chains (4+ sticky levels, e.g. the docs 15MB demo), nested
-  // wrappers' compressed positions interact with CSS sticky in ways that
-  // produce visual artifacts (sticky opens layering at the same depth slot
-  // for sibling wrappers). The simple fixtures don't expose this; the
-  // demo-mirror fixture does.
+  // Each wrapper passes its own spacer-y top (`selfTopAbs`) down as the
+  // child's `parentTopAbs`; children position relative to that, so the nested
+  // wrapper tops telescope and every row lands at its true `absY`. The
+  // outermost element uses `selfTopAbs` directly (no parent to subtract).
   const renderNode = (
     id: number,
     lineIdx: number,
@@ -611,31 +610,32 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     const isToggleable = c !== null && !isTransparent && c.childIds.length > 0;
     if (isToggleable) {
       const collapsed = c!.collapsed;
-      const selfTopAbs = wrapperTopAbsFn(lineIdx, depth);
       const closeLineIdx = lineIdx + subtree - 1;
-      // Wrapper height in CSS = uncompressed offset from wrapper's compressed
-      // top to the close row's true doc-coord top. This keeps wrapper.bottom
-      // in viewport coords aligned with closeRow.top, so CSS sticky's natural
-      // push-up timing matches doc-coords regardless of factor. In factor=1
-      // this reduces to the old (subtree-1)*RH constant. In factor>1 it is
-      // scroll-dependent (varies with translateY) and bounded by scrollRange
-      // + clientHeight, so it never exceeds browser element-coord limits.
-      // When collapsed subtree===1 so there is no close row; height is exactly
-      // ROW_HEIGHT (the formula would otherwise drift in factor>1 mode).
+      // Slice the wrapper to what's rendered. Top line = the open row when
+      // it's in the window, else the window start (the open is a pinned
+      // ancestor scrolled above, still rendered as the sticky header). Bottom
+      // line = the close row when it's in the window (wrapper.bottom ==
+      // closeRow.top, close row hangs one RH below the box so sticky push-up
+      // fires there), else the window end. We always reach here with
+      // closeLineIdx >= startIdx (a fully-above subtree is skipped at the top
+      // of renderNode), so `closeLineIdx < endIdx` means the close is
+      // rendered.
+      const wTopLine = Math.max(lineIdx, startIdx);
+      const wBotLine = closeLineIdx < endIdx ? closeLineIdx : endIdx;
+      const selfTopAbs = absY(wTopLine);
       const wrapperHeight = collapsed
         ? ROW_HEIGHT
-        : Math.max(ROW_HEIGHT, closeLineIdx * ROW_HEIGHT + translateY - selfTopAbs);
+        : Math.max(ROW_HEIGHT, (wBotLine - wTopLine) * ROW_HEIGHT);
       // Collapsed containers are never in pinnedSet (built from expanded
-      // ancestors only), so `pinned` is false and the open row falls back to
-      // absolute positioning — matching the prior collapsed single-row path.
+      // ancestors only), so `pinned` is false and the open row uses absolute
+      // positioning like any single-row node.
       const pinned = pinnedSet.has(id);
 
-      // Only chain-pinned wrappers get position:sticky opens. Non-chain
-      // wrappers' opens are absolute at their true doc-coord viewport y —
-      // otherwise sibling wrappers' compressed bounds (which overlap by
-      // RH*(factor-2)/factor in factor>1 mode) cause CSS sticky to pin
-      // multiple opens at the same depth slot, painting on top of each other.
-      const openTopAbsolute = lineIdx * ROW_HEIGHT + translateY - selfTopAbs;
+      // Chain-pinned wrappers get position:sticky opens (CSS pins them at
+      // depth*RH and hands off when the wrapper bottom reaches the slot).
+      // Non-chain opens are absolute at their natural position relative to
+      // the wrapper.
+      const openTopAbsolute = absY(lineIdx) - selfTopAbs;
       const stickyOpenCtx: LineContextValue = {
         node,
         parent,
@@ -670,10 +670,9 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
         }
 
         if (closeLineIdx >= startIdx && closeLineIdx < endIdx) {
-          // Close `top` relative to wrapper. Equals (subtree - 1)*RH when
-          // factor==1; in factor>1 mode it's scroll-dependent so the close
-          // tracks its true doc-coord position.
-          const closeTop = closeLineIdx * ROW_HEIGHT + translateY - selfTopAbs;
+          // Close `top` relative to wrapper. Equals wrapperHeight (the close
+          // row sits at the wrapper's bottom edge and hangs one RH below it).
+          const closeTop = absY(closeLineIdx) - selfTopAbs;
           const closeCtx: LineContextValue = {
             node,
             parent,
@@ -714,10 +713,9 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
             left: 0,
             right: 0,
             height: wrapperHeight,
-            // Wrappers are positioning placeholders. In factor>1 mode their
-            // compressed bounds overlap sibling wrappers, and a wrapper with
-            // pe:auto would swallow clicks meant for the sibling's row below.
-            // Rows opt back in via Line.tsx (mergedStyle.pointerEvents:'auto').
+            // Wrappers are positioning placeholders; a wrapper with pe:auto
+            // would swallow clicks meant for rows it visually spans. Rows opt
+            // back in via Line.tsx (mergedStyle.pointerEvents:'auto').
             pointerEvents: 'none',
           }}
         >
@@ -731,11 +729,8 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     // Single-row node: primitive or empty container.
     if (lineIdx < startIdx || lineIdx >= endIdx) return null;
     // Outermost: position in spacer coords directly. Otherwise: relative to
-    // parent wrapper's spacer y. Both reduce to flat-row coords because
-    // `K*RH + translateY` is the row's spacer y in either case.
-    const rowTop = isOutermost
-      ? lineIdx * ROW_HEIGHT + translateY
-      : lineIdx * ROW_HEIGHT + translateY - parentTopAbs;
+    // the parent wrapper's spacer top.
+    const rowTop = isOutermost ? absY(lineIdx) : absY(lineIdx) - parentTopAbs;
     const rowCtx: LineContextValue = {
       node,
       parent,
