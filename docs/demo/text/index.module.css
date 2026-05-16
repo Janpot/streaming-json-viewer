@@ -1,5 +1,4 @@
 .viewport {
-  --row-height: 22px;
   --font-mono: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, Consolas, monospace;
   --font-size: 12.5px;
 
@@ -20,7 +19,7 @@
   color: var(--fg);
   font-family: var(--font-mono);
   font-size: var(--font-size);
-  line-height: var(--row-height);
+  line-height: var(--json-viewer-line-height);
 }
 .viewport::-webkit-scrollbar {
   width: 10px;
@@ -43,8 +42,8 @@
 }
 
 .line {
-  height: var(--row-height);
-  line-height: var(--row-height);
+  height: var(--json-viewer-line-height);
+  line-height: var(--json-viewer-line-height);
   display: flex;
   align-items: center;
   white-space: nowrap;

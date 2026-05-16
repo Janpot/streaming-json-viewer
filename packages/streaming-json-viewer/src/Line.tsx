@@ -21,7 +21,9 @@ export interface LineContextValue {
   isSticky: boolean;
   isStickyLast: boolean;
   position: 'absolute' | 'sticky';
-  top: number;
+  /** Pixel offset for absolute rows; a CSS length expression for the sticky
+   * open row (`calc(var(--json-viewer-depth) * var(--json-viewer-line-height))`). */
+  top: number | string;
   height: number;
   zIndex?: number;
   toggle: () => void;

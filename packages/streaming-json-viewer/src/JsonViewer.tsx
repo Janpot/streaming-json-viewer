@@ -626,16 +626,17 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       const wrapperHeight = collapsed
         ? ROW_HEIGHT
         : Math.max(ROW_HEIGHT, (wBotLine - wTopLine) * ROW_HEIGHT);
-      // Collapsed containers are never in pinnedSet (built from expanded
-      // ancestors only), so `pinned` is false and the open row uses absolute
-      // positioning like any single-row node.
+      // Every group's open row is position:sticky; CSS pins it at
+      // `calc(var(--json-viewer-depth) * var(--json-viewer-line-height))` (= depth*ROW_HEIGHT)
+      // and hands off when the wrapper bottom reaches the slot. `pinned` (the
+      // ancestor chain currently covering the viewport) does not affect
+      // positioning — it only drives the `data-sticky` highlight, the
+      // deepest-pinned marker, and the collapse-anchor toggle. Collapsed
+      // containers are never in pinnedSet, so they never get the highlight;
+      // their ROW_HEIGHT-tall wrapper also leaves the sticky open nowhere to
+      // travel, so it just sits at its flow position.
       const pinned = pinnedSet.has(id);
 
-      // Chain-pinned wrappers get position:sticky opens (CSS pins them at
-      // depth*RH and hands off when the wrapper bottom reaches the slot).
-      // Non-chain opens are absolute at their natural position relative to
-      // the wrapper.
-      const openTopAbsolute = absY(lineIdx) - selfTopAbs;
       const stickyOpenCtx: LineContextValue = {
         node,
         parent,
@@ -644,10 +645,10 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
         lineIdx,
         isSticky: pinned && (lineIdx - depth) * ROW_HEIGHT < docScrollTop,
         isStickyLast: id === deepestVisuallyStickyId,
-        position: pinned ? 'sticky' : 'absolute',
-        top: pinned ? depth * ROW_HEIGHT : openTopAbsolute,
+        position: 'sticky',
+        top: 'calc(var(--json-viewer-depth) * var(--json-viewer-line-height))',
         height: ROW_HEIGHT,
-        zIndex: pinned ? 100 - depth : undefined,
+        zIndex: 100 - depth,
         toggle: pinned
           ? () => handleStickyToggle(id, lineIdx, depth)
           : () => toggleCollapse(id),
@@ -713,11 +714,15 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
             left: 0,
             right: 0,
             height: wrapperHeight,
+            // `--json-viewer-depth` lets the sticky open row compose its pin offset as
+            // `calc(var(--json-viewer-depth) * var(--json-viewer-line-height))` — it's inherited
+            // by the open row, this wrapper's only in-flow child.
+            '--json-viewer-depth': depth,
             // Wrappers are positioning placeholders; a wrapper with pe:auto
             // would swallow clicks meant for rows it visually spans. Rows opt
             // back in via Line.tsx (mergedStyle.pointerEvents:'auto').
             pointerEvents: 'none',
-          }}
+          } as CSSProperties}
         >
           <LineContext.Provider value={stickyOpenCtx}>{renderRow()}</LineContext.Provider>
           {interior}
@@ -799,15 +804,21 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     <div style={{ height: spacerHeight, position: 'relative' }}>{spacerChildren}</div>
   );
 
-  const mergedStyle: CSSProperties = {
+  // `--json-viewer-line-height` exposes the JS ROW_HEIGHT once at the top level so the
+  // sticky open `top` can be composed in CSS as
+  // `calc(var(--json-viewer-depth) * var(--json-viewer-line-height))`. It must mirror the JS
+  // constant (geometry/virtualization read ROW_HEIGHT directly), so it is an
+  // internal compositional detail, not a theming knob.
+  const mergedStyle = {
     position: 'relative',
     overflow: 'auto',
     overscrollBehavior: 'none',
     scrollbarGutter: 'stable',
     contain: 'strict',
     boxSizing: 'border-box',
+    '--json-viewer-line-height': `${ROW_HEIGHT}px`,
     ...style,
-  };
+  } as CSSProperties;
 
   const onFocus: FocusEventHandler<HTMLDivElement> = (e) => {
     setHasFocusWithin(true);

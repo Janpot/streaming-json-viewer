@@ -19,7 +19,6 @@ body {
 }
 
 .tv-shell {
-  --row-height: 22px;
   --bg: #0d0e12;
   --bg-sticky: #181a20;
   --bg-hover: #1a1d23;
@@ -46,12 +45,12 @@ body {
   flex: 1;
   font-family: inherit;
   font-size: inherit;
-  line-height: var(--row-height);
+  line-height: var(--json-viewer-line-height);
 }
 
 .tv-line {
-  height: var(--row-height);
-  line-height: var(--row-height);
+  height: var(--json-viewer-line-height);
+  line-height: var(--json-viewer-line-height);
   display: flex;
   align-items: center;
   white-space: nowrap;
