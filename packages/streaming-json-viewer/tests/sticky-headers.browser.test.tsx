@@ -142,11 +142,14 @@ describe('sticky headers', () => {
       .toMatchScreenshot('stacked-sticky-chain');
   });
 
-  // Gates the content-box-clamp assumption behind the wrapper padding-bottom:
-  // when an ancestor's close row is Δ below the depth slot, CSS sticky must
-  // push the pinned header up by exactly (ROW_HEIGHT − Δ). If the engine
-  // clamped to the padding/border box instead, padding-bottom would not move
-  // the trigger and the header would stay pinned — failing the mid/gone cases.
+  // Gates the content-box clamp in the flow structure (auto-height wrapper +
+  // close row negative margin + wrapper padding): with the wrapper's content
+  // box ending at the close row's top, CSS sticky pushes the pinned header up
+  // by exactly (ROW_HEIGHT − Δ) when the close row is Δ below the slot, so the
+  // header is fully handed off exactly when the close reaches the slot (Δ=0).
+  // If the engine clamped to the padding/border box instead, the negative
+  // margin/padding pair would not move the trigger and mid/gone would fail.
+  // `delta` here = closeRow.top − slot.
   test('sticky header is pushed up by exactly the close-row overlap', async () => {
     const RH = ROW_HEIGHT;
     // makePushUpFixture(): `head` array open=line 1 (depth 1), close=line 42.
@@ -157,7 +160,7 @@ describe('sticky headers', () => {
     const viewport = screen.getByTestId('tv-viewport').element() as HTMLDivElement;
 
     const headRelTop = async (delta: number): Promise<number> => {
-      // Bring `head`'s close row to `slot + delta` from the viewport top.
+      // Put `head`'s close row at `slot + delta` from the viewport top.
       viewport.scrollTop = cl * RH - d * RH - delta;
       viewport.dispatchEvent(new Event('scroll', { bubbles: true }));
       await settle();

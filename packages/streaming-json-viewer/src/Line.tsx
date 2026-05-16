@@ -20,11 +20,17 @@ export interface LineContextValue {
   lineIdx: number;
   isSticky: boolean;
   isStickyLast: boolean;
-  position: 'absolute' | 'sticky';
-  /** Pixel offset for absolute rows; a CSS length expression for the sticky
-   * open row (`calc(var(--json-viewer-depth) * var(--json-viewer-line-height))`). */
-  top: number | string;
-  height: number;
+  /** Rows are in normal flow. Container open rows are `sticky` (pinned at
+   * `top`); every other row is `static`. */
+  position: 'sticky' | 'static';
+  /** Sticky inset for open rows only:
+   * `calc(var(--json-viewer-depth) * var(--json-viewer-line-height))`. */
+  top?: string;
+  /** Bottom margin (CSS length). Set only on the close row to a negative
+   * line-height: with the wrapper's compensating `padding-bottom` it shrinks
+   * the sticky containing block's content box to the close row's top so the
+   * push-up hand-off fires one row earlier, without changing flow height. */
+  marginBottom?: string;
   zIndex?: number;
   toggle: () => void;
   /** True for the row that owns the tab stop (`tabIndex=0`). Stays set even
@@ -259,7 +265,7 @@ export function Line({ className, style, onClick, onFocus, children, ...rest }: 
     toggle,
     position,
     top,
-    height,
+    marginBottom,
     zIndex,
     isSticky,
     isStickyLast,
@@ -270,18 +276,21 @@ export function Line({ className, style, onClick, onFocus, children, ...rest }: 
     lineId,
   } = ctx;
   const { empty, collapsed, isContainer, isToggleable } = getLineShape(ctx);
+  // Rows are in normal document flow as exact fixed-height blocks: the height
+  // comes from the single `--json-viewer-line-height` variable (the JS
+  // ROW_HEIGHT), inline so content/consumer line-height can't change the box
+  // and the flow stack can't drift vs the scrollbar. Container open rows are
+  // `position:sticky` (pinned at `top`); all other rows are `static`.
+  const isStickyPos = position === 'sticky';
   const mergedStyle: CSSProperties = {
     paddingLeft: depth * INDENT + 8,
     ...style,
     position,
-    top,
-    left: position === 'absolute' ? 0 : undefined,
-    right: position === 'absolute' ? 0 : undefined,
-    height,
-    zIndex,
-    // Wrappers above set pointer-events:none to avoid intercepting clicks in
-    // overlapping compressed bounds; rows opt back in here.
-    pointerEvents: 'auto',
+    top: isStickyPos ? top : undefined,
+    height: 'var(--json-viewer-line-height)',
+    boxSizing: 'border-box',
+    marginBottom,
+    zIndex: isStickyPos ? zIndex : undefined,
   };
 
   const isClose = kind === 'close';

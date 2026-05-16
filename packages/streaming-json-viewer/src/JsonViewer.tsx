@@ -21,6 +21,7 @@ import { RootContext, useRoot, type RootContextValue } from './context';
 import {
   deepestVisibleAncestor,
   firstOpenLine,
+  getLineAt,
   getNodeLineIdx,
   getRenderDepth,
   isNodeVisible,
@@ -546,43 +547,26 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     }
   }
 
-  // One layout model for both factor==1 and factor>1. Every row/wrapper is
-  // laid out in natural coords; `absY(line)` is that flat line's position in
-  // spacer-DOM coords. With the browser scrolled to `scrollTop`, absY(line)
-  // paints at the correct viewport y (`line*RH - docScrollTop`) in both
-  // regimes. `translateY` is 0 when factor==1 and non-zero only in factor>1,
-  // where it is the single offset that shifts the rendered window into the
-  // capped spacer; it cancels in every parent→child position difference, so
-  // it effectively only offsets the outermost element.
-  const absY = (line: number) => line * ROW_HEIGHT + translateY;
+  // Flow layout. Only the visible window is rendered, in normal document flow,
+  // inside one absolutely-positioned container whose top is the sole
+  // factor-affected coordinate (see `mainContent`). Non-window siblings are
+  // skipped with NO spacer; the bulk skip is compensated by that container's
+  // top. Container open rows are `position:sticky` — CSS pins the ancestor
+  // chain and does the push-up hand-off natively (the wrapper is a plain
+  // in-flow block whose height is the sum of its rows; it extends past the
+  // viewport while the window is inside it, so the header stays pinned until
+  // the real close row enters the window). Every other row is a static
+  // fixed-height block. A node is rendered iff its line span overlaps the
+  // window; an ancestor container whose subtree spans the window still emits
+  // its (sticky) open row even though that row's line is above the window.
+  const overlapsWindow = (line: number, sub: number) =>
+    line + sub > startIdx && line < endIdx;
 
-  // Recursive render — every container becomes a wrapper containing its
-  // sticky open, visible interior children, and an absolute close row. Each
-  // wrapper is sized to its *rendered slice*: clamped to the open row when
-  // that row is in the window, and to the close row when that row is in the
-  // window (so wrapper.bottom == closeRow.top and CSS sticky's push-up
-  // hand-off fires there). In the deep middle, where neither edge is
-  // rendered, the wrapper just spans the visible slice — which keeps the
-  // sticky open pinned at depth*RH. A wrapper is therefore never taller than
-  // the slice, so no element approaches browser element-coord limits
-  // regardless of document size, and sibling wrappers span disjoint line
-  // ranges and never overlap.
-  //
-  // Each wrapper passes its own spacer-y top (`selfTopAbs`) down as the
-  // child's `parentTopAbs`; children position relative to that, so the nested
-  // wrapper tops telescope and every row lands at its true `absY`. The
-  // outermost element uses `selfTopAbs` directly (no parent to subtract).
-  const renderNode = (
-    id: number,
-    lineIdx: number,
-    depth: number,
-    parentTopAbs: number,
-    isOutermost: boolean,
-  ): ReactNode => {
+  const renderNode = (id: number, lineIdx: number, depth: number): ReactNode => {
     const node = nodes[id];
     if (!node) return null;
     const subtree = node.subtreeLines;
-    if (lineIdx + subtree <= startIdx || lineIdx >= endIdx) return null;
+    if (!overlapsWindow(lineIdx, subtree)) return null;
 
     const isContainer = node.type === 'object' || node.type === 'array';
     const c = isContainer ? (node as ContainerNode) : null;
@@ -590,57 +574,32 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     const isTransparent = c?.transparent === true;
     const parent = node.parentId >= 0 ? nodes[node.parentId]! : null;
 
-    // Transparent: pass through children with the same depth and parent
-    // context (the transparent container has no own open/close rows).
+    // Transparent container: no own rows; pass children through at same depth.
     if (isExpanded && isTransparent) {
       const out: ReactNode[] = [];
       let cursor = lineIdx;
       for (const cid of c!.childIds) {
         const child = nodes[cid]!;
-        const r = renderNode(cid, cursor, depth, parentTopAbs, isOutermost);
+        const r = renderNode(cid, cursor, depth);
         if (r != null) out.push(r);
         cursor += child.subtreeLines;
       }
       return out.length > 0 ? <>{out}</> : null;
     }
 
-    // Toggleable container (non-transparent, has children). Renders a wrapper
-    // even when collapsed, so the open row's <Trigger> stays mounted across
-    // toggles — required for the CSS rotate transition on `data-state` to fire.
+    // Toggleable container (non-transparent, has children). Always renders a
+    // wrapper — even collapsed — so the open row's <Trigger> stays mounted
+    // across toggles (CSS rotate transition on `data-state`).
     const isToggleable = c !== null && !isTransparent && c.childIds.length > 0;
     if (isToggleable) {
       const collapsed = c!.collapsed;
       const closeLineIdx = lineIdx + subtree - 1;
-      // Slice the wrapper to what's rendered. Top line = the open row when
-      // it's in the window, else the window start (the open is a pinned
-      // ancestor scrolled above, still rendered as the sticky header). Bottom
-      // line = one past the close row when it's in the window (so the border
-      // box encloses the close row as its last row), else the window end. We
-      // always reach here with closeLineIdx >= startIdx (a fully-above subtree
-      // is skipped at the top of renderNode), so `closeLineIdx < endIdx` means
-      // the close is rendered. The non-collapsed wrapper carries
-      // `padding-bottom: 1lh` (below), so its *content* box still ends at the
-      // close row's top — CSS sticky clamps the open header to the content
-      // box, so the push-up still fires exactly at closeRow.top while the
-      // close row sits inside the border box rather than hanging below it.
-      const wTopLine = Math.max(lineIdx, startIdx);
-      const wBotLine = closeLineIdx < endIdx ? closeLineIdx + 1 : endIdx;
-      const selfTopAbs = absY(wTopLine);
-      const wrapperHeight = collapsed
-        ? ROW_HEIGHT
-        : Math.max(ROW_HEIGHT, (wBotLine - wTopLine) * ROW_HEIGHT);
-      // Every group's open row is position:sticky; CSS pins it at
-      // `calc(var(--json-viewer-depth) * var(--json-viewer-line-height))` (= depth*ROW_HEIGHT)
-      // and hands off when the wrapper bottom reaches the slot. `pinned` (the
-      // ancestor chain currently covering the viewport) does not affect
-      // positioning — it only drives the `data-sticky` highlight, the
-      // deepest-pinned marker, and the collapse-anchor toggle. Collapsed
-      // containers are never in pinnedSet, so they never get the highlight;
-      // their ROW_HEIGHT-tall wrapper also leaves the sticky open nowhere to
-      // travel, so it just sits at its flow position.
+      // `pinned` (ancestor chain currently covering the viewport) only drives
+      // the `data-sticky` highlight, the deepest-pinned marker, and the
+      // collapse-anchor toggle — not positioning (every open row is sticky).
       const pinned = pinnedSet.has(id);
 
-      const stickyOpenCtx: LineContextValue = {
+      const openCtx: LineContextValue = {
         node,
         parent,
         kind: 'open',
@@ -650,7 +609,6 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
         isStickyLast: id === deepestVisuallyStickyId,
         position: 'sticky',
         top: 'calc(var(--json-viewer-depth) * var(--json-viewer-line-height))',
-        height: ROW_HEIGHT,
         zIndex: 100 - depth,
         toggle: pinned
           ? () => handleStickyToggle(id, lineIdx, depth)
@@ -668,17 +626,12 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
         let cursor = lineIdx + 1;
         for (const cid of c!.childIds) {
           const child = nodes[cid]!;
-          const r = renderNode(cid, cursor, depth + 1, selfTopAbs, false);
+          const r = renderNode(cid, cursor, depth + 1);
           if (r != null) interior.push(r);
           cursor += child.subtreeLines;
         }
 
         if (closeLineIdx >= startIdx && closeLineIdx < endIdx) {
-          // Close `top` relative to wrapper. Equals wrapperHeight - ROW_HEIGHT:
-          // the close row sits in the wrapper's bottom padding band (its last
-          // row). Sticky clamps the open header to the content box just above
-          // it, so push-up still triggers at the close row's top.
-          const closeTop = absY(closeLineIdx) - selfTopAbs;
           const closeCtx: LineContextValue = {
             node,
             parent,
@@ -687,9 +640,13 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
             lineIdx: closeLineIdx,
             isSticky: false,
             isStickyLast: false,
-            position: 'absolute',
-            top: closeTop,
-            height: ROW_HEIGHT,
+            position: 'static',
+            // Negative bottom margin pulls the wrapper's content-box bottom up
+            // to this close row's top; the wrapper's compensating
+            // `padding-bottom` (below) restores the border box so flow height
+            // is unchanged. Net: sticky (clamped to the content box) hands the
+            // open header off one row earlier.
+            marginBottom: 'calc(-1 * var(--json-viewer-line-height))',
             toggle: () => toggleCollapse(id),
             isFocused: false,
             hasFocus: false,
@@ -705,8 +662,6 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
         }
       }
 
-      const wrapperTop = isOutermost ? selfTopAbs : selfTopAbs - parentTopAbs;
-
       return (
         <div
           {...groupProps}
@@ -714,42 +669,32 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
           data-depth={depth}
           style={{
             ...(groupProps.style ?? {}),
-            position: 'absolute',
-            top: wrapperTop,
-            left: 0,
-            right: 0,
-            height: wrapperHeight,
-            // Set box-sizing explicitly so a consumer global reset (e.g.
-            // `* { box-sizing: border-box }`) can't change the height/padding
-            // math: with border-box the content box bottom = height -
-            // paddingBottom. The non-collapsed wrapper reserves its last row
-            // as padding so its content box ends at the close row's top — CSS
-            // sticky clamps the open header to that content box, reproducing
-            // the push-up while the close row stays inside the border box.
-            boxSizing: 'border-box',
-            paddingBottom: collapsed ? undefined : 'var(--json-viewer-line-height)',
-            // `--json-viewer-depth` lets the sticky open row compose its pin offset as
-            // `calc(var(--json-viewer-depth) * var(--json-viewer-line-height))` — it's inherited
-            // by the open row, this wrapper's only in-flow child.
+            // Inherited by the open row so it composes its sticky inset as
+            // calc(var(--json-viewer-depth) * var(--json-viewer-line-height)).
             '--json-viewer-depth': depth,
-            // Wrappers are positioning placeholders; a wrapper with pe:auto
-            // would swallow clicks meant for rows it visually spans. Rows opt
-            // back in via Line.tsx (mergedStyle.pointerEvents:'auto').
-            pointerEvents: 'none',
+            // Paired with the close row's negative bottom margin: padding
+            // restores the border box (flow height unchanged for following
+            // siblings) while the content box ends at the close row's top, so
+            // CSS sticky's push-up hand-off fires one line-height earlier.
+            // Only when the close row is in flow here. box-sizing explicit so
+            // a consumer global reset can't change how the padding composes.
+            ...(closeNode != null
+              ? {
+                  boxSizing: 'border-box' as const,
+                  paddingBottom: 'var(--json-viewer-line-height)',
+                }
+              : null),
           } as CSSProperties}
         >
-          <LineContext.Provider value={stickyOpenCtx}>{renderRow()}</LineContext.Provider>
+          <LineContext.Provider value={openCtx}>{renderRow()}</LineContext.Provider>
           {interior}
           {closeNode}
         </div>
       );
     }
 
-    // Single-row node: primitive or empty container.
+    // Single in-flow row: primitive, empty container, or collapsed leaf.
     if (lineIdx < startIdx || lineIdx >= endIdx) return null;
-    // Outermost: position in spacer coords directly. Otherwise: relative to
-    // the parent wrapper's spacer top.
-    const rowTop = isOutermost ? absY(lineIdx) : absY(lineIdx) - parentTopAbs;
     const rowCtx: LineContextValue = {
       node,
       parent,
@@ -758,9 +703,7 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
       lineIdx,
       isSticky: false,
       isStickyLast: false,
-      position: 'absolute',
-      top: rowTop,
-      height: ROW_HEIGHT,
+      position: 'static',
       toggle: c ? () => toggleCollapse(id) : () => {},
       isFocused: id === effectiveFocusedId,
       hasFocus: id === effectiveFocusedId && hasFocusWithin,
@@ -775,7 +718,24 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
     );
   };
 
-  const spacerChildren: ReactNode = nodes.length > 0 ? renderNode(0, 0, 0, 0, true) : null;
+  const spacerChildren: ReactNode = nodes.length > 0 ? renderNode(0, 0, 0) : null;
+
+  // The window container is the ONE factor-affected coordinate. Before the
+  // first visible line the recursion emits exactly one (sticky) open row per
+  // non-transparent ancestor of that line — `getLineAt(startIdx).path` is
+  // precisely that ancestor list. Positioning the container at
+  // `startIdx*RH + translateY − path.length*RH` makes that compensated
+  // pre-flow cancel, so the first visible line lands at `startIdx*RH −
+  // docScrollTop`; every later line follows from exact ROW_HEIGHT flow
+  // stacking. `translateY` is 0 at factor==1 and the single capped-spacer
+  // offset at factor>1.
+  let windowTop = 0;
+  if (nodes.length > 0 && totalLines > 0) {
+    const firstLine = Math.min(Math.max(0, startIdx), totalLines - 1);
+    const at = getLineAt(firstLine, nodes);
+    const preFlow = (at ? at.path.length : 0) * ROW_HEIGHT;
+    windowTop = startIdx * ROW_HEIGHT + translateY - preFlow;
+  }
 
   // Restore DOM focus to the focused row after commits where:
   //  - user interaction (click, keyboard, collapse toggle) set
@@ -815,7 +775,11 @@ const Viewport = forwardRef<HTMLDivElement, ViewportProps>(function Viewport(
   });
 
   const mainContent: ReactNode = (
-    <div style={{ height: spacerHeight, position: 'relative' }}>{spacerChildren}</div>
+    <div style={{ height: spacerHeight, position: 'relative' }}>
+      <div style={{ position: 'absolute', top: windowTop, left: 0, right: 0 }}>
+        {spacerChildren}
+      </div>
+    </div>
   );
 
   // `--json-viewer-line-height` exposes the JS ROW_HEIGHT once at the top level so the
