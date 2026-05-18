@@ -11,6 +11,10 @@ jobs:
     # screenshot rendering is identical between dev (Mac via docker) and CI.
     # Keep this tag in sync with the `playwright` version in pnpm-lock.yaml.
     container: mcr.microsoft.com/playwright:v1.59.1-noble
+    # Already inside the Playwright image (Chromium present, no Docker CLI):
+    # use the host browser provider instead of the dockerized one.
+    env:
+      SJV_TEST_BROWSER: host
     steps:
       - uses: actions/checkout@v4
 
